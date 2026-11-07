@@ -1,0 +1,15 @@
+{
+  "version": "45.2.3",
+  "platform": "win32-x64",
+  "file_name": "electron-v45.2.3-win32-x64.zip",
+  "sha256": "4bb5f7adf3b08cc0bdef88623de2f623f69b228eda762fb56450b27b02d0482f",
+  "size_bytes": 158182975,
+  "release": "https://github.com/electron/electron/releases/tag/v45.2.3",
+  "source_kind": "official_workflow_artifact",
+  "published_asset_sha256": "489cd061908e697394b004298bf5ffd345c935d10e8ca197ba819f019ab2dec0",
+  "source_commit": "d0a18d02058b21ff292e25d5f53f00bd120f2f61",
+  "official_workflow_run_id": 41872094557,
+  "official_artifact_id": 13348223727,
+  "artifact_member": "dist.zip",
+  "artifact_sha256": "4cedaba2c79de8b6a229d7e44987cbd2f4d58303f7f2bbc09bb7174762796a5d"
+}

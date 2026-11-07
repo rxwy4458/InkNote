@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; worker-src 'self' blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="theme-color" content="#f2ecf5">
+  <meta name="description" content="墨页 InkNote，本地保存的 PDF 手写批注与笔记工作台。">
+  <title>墨页 InkNote</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app"><div id="view"></div></div>
+  <input id="file-input" type="file" accept=".pdf,.inknote,.epub,.txt,.fb2,.html,.htm,.cbz,.md,.mobi,.azw,.azw3,.azw4,.prc,.rtf,.docx,.odt,.chm,.lit,.lrf,.pdb,.snb,.tcr,.djvu,.cbr" multiple hidden>
+  <input id="comment-image-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
+  <dialog id="modal"><form id="modal-form"><div id="modal-content"></div></form></dialog>
+  <div id="toasts" aria-live="polite"></div>
+  <div id="drop-overlay" hidden><div class="drop-card"><span class="drop-icon"><span class="icon" aria-hidden="true">&#xe2c6;</span></span><h2>松开即可导入</h2><p>PDF · EPUB · TXT · FB2 · HTML · CBZ · Markdown · .inknote 备份</p></div></div>
+  <!-- Window caption buttons stay last: Electron applies drag / no-drag regions in document order. -->
+  <div id="windowbar" hidden><button data-window="minimize" aria-label="最小化" title="最小化"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5.5h10"/></svg></button><button data-window="maximize" aria-label="最大化" title="最大化"><svg viewBox="0 0 10 10" aria-hidden="true"><rect x=".5" y=".5" width="9" height="9" rx="1"/></svg></button><button data-window="close" class="window-close" aria-label="关闭" title="关闭"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="m.5.5 9 9m0-9-9 9"/></svg></button></div>
+  <script src="vendor/pdf-lib.min.js"></script>
+  <script src="vendor/jszip.min.js"></script>
+  <script src="vendor/xml-js.min.js"></script>
+  <script type="module" src="app.mjs"></script>
+</body>
+</html>

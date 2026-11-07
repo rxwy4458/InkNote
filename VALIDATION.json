@@ -1,0 +1,174 @@
+{
+  "version": "0.5.0",
+  "date": "2026-11-07",
+  "ui": {
+    "style": "Material You / Material 3 Expressive",
+    "dynamic_color": "Material Color Utilities 0.4.0, spec 2025",
+    "presets": [
+      "薰衣草",
+      "海湾蓝",
+      "薄荷绿",
+      "珊瑚橙",
+      "樱花粉",
+      "石墨灰"
+    ],
+    "custom_seed_color": true,
+    "variants": [
+      "柔和",
+      "鲜明",
+      "表现力",
+      "中性"
+    ],
+    "modes": [
+      "浅色",
+      "深色",
+      "跟随系统"
+    ],
+    "paper_and_pdf_export_theme_independent": true
+  },
+  "application_tests": {
+    "passed": 39,
+    "failed": 0,
+    "new": "tests/paper.test.mjs (4 tests: line spacing, title area geometry incl. legacy pages, Asia/Shanghai date and time, margin line and title actually drawn on A4 and infinite paper)"
+  },
+  "javascript_syntax_and_offline_assets": "passed: 28 modules, fonts (83-icon Material Symbols subset) and colour library referenced by HTML/CSS present",
+  "browser_end_to_end": {
+    "tool": "Playwright Chromium against scripts/serve.mjs",
+    "workflow_checks_passed": 49,
+    "workflow_checks_failed": 0,
+    "covers": [
+      "library search, sort, list view, folders, favourites",
+      "time canvas A4/grid/cover, pen, marker, rect, text, undo/redo, lasso + delete, eraser, insert date, zoom",
+      "add infinite page (auto time stamp, non-negative coordinates), bookmark filter, duplicate/delete page",
+      "page annotation + reply + 76×76 image thumbnail + lightbox + collapse + edit + locate",
+      "PDF export, find in canvas text",
+      "post with image, floors 1/2/3, nested replies 2.1/2.1.1/2.1.1.1 in real nested containers, search, collapse hides connectors, delete floor keeps numbering, next floor continues, undo, rename",
+      "post .inknote export and re-import keep floors, numbering and image",
+      "PDF import, text search, annotate, export",
+      "TXT ebook import (was broken in 0.3.3)"
+    ],
+    "theme_checks_passed": 12,
+    "page_errors": 0,
+    "feature_checks_0_5_0": {
+      "passed": 66,
+      "failed": 0,
+      "covers": [
+        "page title sync both ways, undo, thumbnail titles",
+        "click / double-click to edit text, Escape, empty removes",
+        "partial and whole-stroke eraser, E toggles, mode remembered",
+        "clipboard and selection bar",
+        "add page with spacing, paper style dialog, move up/down, rename via thumbnail and ⋮ menu",
+        "insert date with time",
+        "infinite page title and margin baseline",
+        "movable toolbar: drag to left/top, arrow keys, double-click, settings, remembered",
+        "full-text search with snippet",
+        "split view: chooser, half/half, draw in right pane, divider drag, swap, close, theme",
+        "backup round trip keeps titles, spacing, margin"
+      ]
+    },
+    "scroll_and_shared_toolbar_checks": {
+      "passed": 26,
+      "failed": 0,
+      "covers": [
+        "continuous: stacked pages, pre-rendered neighbours, wheel in hand mode goes 1→2→3→4 in order, thumbnails follow, pen-down on the next page writes there, zoom keeps the page",
+        "single page: wheel past bottom/top flips, opens at top/bottom, scrolling inside a page does not flip, mode remembered",
+        "split view: one window-wide toolbar, right pane toolbar hidden, tool/colour/eraser mode shared both ways, shortcut in right pane updates it, docks to the window edge, returns to the page area when split closes, nothing left on the library"
+      ]
+    }
+  },
+  "old_notes_compatibility": {
+    "method": "notes created with the original 0.3.3 UI, then the 0.5.0 UI opened on the same origin and browser profile",
+    "passed": true,
+    "checks": [
+      "same notes listed",
+      "old post floors and reply positions",
+      "new floor continues numbering",
+      "old time-canvas strokes intact",
+      "old pages have no title field: layout unchanged, top of page stays writable, no title added",
+      "old page can be given a title from the menu without renaming the notebook",
+      "old sample notebook opens without a title overlay"
+    ],
+    "indexeddb": "inknote-local v1 unchanged; new optional page fields title/spacing/margin; settings keys theme, eraserMode, splitRatio, toolbarDock, scrollMode"
+  },
+  "electron_runtime_check": {
+    "runtime": "Electron 45.2.3 Linux build under Xvfb (same version as the bundled Windows runtime)",
+    "startup_report_ok": true,
+    "payload_extracted_from_built_installer_started": true,
+    "checks": [
+      "served from inknote://app/index.html",
+      "drag region and no-drag controls",
+      "caption buttons not covered by any drag region (library, editor, split view)",
+      "caption buttons reach main process",
+      "real X11 clicks on minimize / maximize / close work (0.4.0 layout: no effect)",
+      "bundled fonts load",
+      "split pane served from inknote://, same-origin, no drag regions or desktop bridge of its own",
+      "close button saves both panes before quitting",
+      "note and strokes persist across restart"
+    ],
+    "window_maximize_behaviour": "not verifiable without a window manager; IPC path verified",
+    "checks_passed": 17
+  },
+  "offline_installer": {
+    "file": "InkNote-Setup-0.5.0-offline.exe",
+    "bytes": 161109341,
+    "sha256": "06a461900c62ff1d90fe91bce856e9c2d55e30de6f8b8ae1ad7665c2740978f7",
+    "complete_runtime_embedded": true,
+    "runtime": {
+      "version": "45.2.3",
+      "platform": "win32-x64",
+      "file_name": "electron-v45.2.3-win32-x64.zip",
+      "sha256": "4bb5f7adf3b08cc0bdef88623de2f623f69b228eda762fb56450b27b02d0482f",
+      "size_bytes": 158182975,
+      "release": "https://github.com/electron/electron/releases/tag/v45.2.3",
+      "source_kind": "official_workflow_artifact",
+      "published_asset_sha256": "489cd061908e697394b004298bf5ffd345c935d10e8ca197ba819f019ab2dec0",
+      "source_commit": "d0a18d02058b21ff292e25d5f53f00bd120f2f61",
+      "official_workflow_run_id": 41872094557,
+      "official_artifact_id": 13348223727,
+      "artifact_member": "dist.zip",
+      "artifact_sha256": "4cedaba2c79de8b6a229d7e44987cbd2f4d58303f7f2bbc09bb7174762796a5d"
+    },
+    "contains_network_download_code": false,
+    "windows_x64_gui_pe_and_native_uninstaller": "checked",
+    "archive_integrity_and_corruption_rejection": "passed",
+    "windows_execution_verified": false
+  },
+  "uninstaller": {
+    "file": "Uninstall-InkNote.exe",
+    "bytes": 21440,
+    "sha256": "a75eedd3d7f39d6bd50771d8a3e6110922ac63618e2477e0c0c52d5a9ddae87a",
+    "native_gui": true,
+    "simulated_filesystem_and_registry_tests": "passed ASan/UBSan; legacy and current modes, incl. 0.5.0 path and manifest recognition",
+    "recognized_versions": [
+      "0.2.0",
+      "0.3.1",
+      "0.3.2",
+      "0.3.3",
+      "0.4.0",
+      "0.5.0"
+    ],
+    "preserves_notes": true
+  },
+  "windows_execution_verified": false,
+  "complete_offline_installer_built": true,
+  "installer_format": "custom native GUI bootstrapper and Windows built-in PowerShell; no console launcher",
+  "nsis_installer_built": false,
+  "features_0_5_0": [
+    "split view (same-origin iframe), resizable divider, swap, one shared pen toolbar for both panes",
+    "OneNote-style page title with date/time under it; page 1 title linked to the notebook name both ways",
+    "click an existing text box to edit it in place (no stacked duplicates)",
+    "line spacing narrow / standard / wide for ruled, grid and dot paper",
+    "left margin baseline on A4 and infinite canvas",
+    "eraser: whole-stroke and partial (splits strokes; rectangles too)",
+    "copy / cut / paste / duplicate / select-all with a selection bar",
+    "continuous page scrolling (stacked pages, the page in view becomes editable) and single-page wheel flipping, in every tool",
+    "movable toolbar: bottom, top, left, right (vertical)",
+    "full-text library search with snippets, insert date+time, move page up/down, paper style dialog"
+  ],
+  "fixes_0_5_0": [
+    "window caption buttons (close / minimize / maximize) were covered by the title bar drag region on Windows in 0.4.0; verified with real X11 XTest clicks: no effect in the 0.4.0 layout, working in 0.5.0 (library, editor, split view)",
+    "'rename notebook' from the ⋮ menu was cancelled by the previous dialog's late close event",
+    "segmented buttons in dialogs (e.g. 纸张范围) rendered broken in 0.4.0",
+    "pages zoomed wider than the window could not be scrolled to their left edge"
+  ]
+}

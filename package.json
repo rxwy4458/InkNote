@@ -1,0 +1,61 @@
+{
+  "name": "inknote",
+  "productName": "InkNote",
+  "version": "0.5.0",
+  "description": "墨页：PDF、时间画布、电子书与一页一帖的楼中楼笔记",
+  "main": "desktop/main.cjs",
+  "author": "InkNote",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "node scripts/serve.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node scripts/check.mjs",
+    "dist:win": "electron-builder --win nsis --x64",
+    "portable:win": "electron-builder --win zip --x64",
+    "test:uninstaller": "python3 installer/test-uninstaller.py",
+    "verify:win": "powershell -NoProfile -File scripts/verify-windows-install.ps1",
+    "dist:online": "python3 installer/build-online-exe.py",
+    "dist:offline": "python3 installer/build-offline-exe.py"
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "0.1.100",
+    "electron": "45.2.3",
+    "electron-builder": "^26.0.12",
+    "pdfjs-dist": "5.6.205",
+    "jszip": "3.10.1",
+    "xml-js": "1.6.11"
+  },
+  "build": {
+    "appId": "com.inknote.desktop",
+    "productName": "InkNote",
+    "asar": true,
+    "files": [
+      "app/**/*",
+      "desktop/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ],
+      "signAndEditExecutable": false,
+      "icon": "app/icon.ico",
+      "executableName": "InkNote"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "墨页 InkNote",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "InkNote-Setup-${version}-${arch}.${ext}"
+    }
+  }
+}
