@@ -2,13 +2,13 @@ param([Parameter(Mandatory=$true)][string]$BundlePath)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
 $electronVersion='45.2.3'
-$appVersion='0.5.0'
+$appVersion='0.6.1'
 $zipName="electron-v$electronVersion-win32-x64.zip"
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [Windows.Forms.Application]::EnableVisualStyles()
 $form=New-Object System.Windows.Forms.Form
-$form.Text='安装墨页 InkNote 0.5.0（离线安装）'
+$form.Text='安装墨页 InkNote 0.6.1（离线安装）'
 $form.Size=New-Object System.Drawing.Size(530,255)
 $form.StartPosition='CenterScreen'
 $form.FormBorderStyle='FixedDialog'

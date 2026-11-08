@@ -2,14 +2,14 @@ param([Parameter(Mandatory=$true)][string]$BundlePath)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
 $electronVersion='45.2.3'
-$appVersion='0.5.0'
+$appVersion='0.6.1'
 $zipName="electron-v$electronVersion-win32-x64.zip"
 $release="https://github.com/electron/electron/releases/download/v$electronVersion/"
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [Windows.Forms.Application]::EnableVisualStyles()
 $form=New-Object System.Windows.Forms.Form
-$form.Text='安装墨页 InkNote 0.5.0（在线安装）'
+$form.Text='安装墨页 InkNote 0.6.1（在线安装）'
 $form.Size=New-Object System.Drawing.Size(530,255)
 $form.StartPosition='CenterScreen'
 $form.FormBorderStyle='FixedDialog'
@@ -48,7 +48,7 @@ function Assert-RegularDirectory([string]$path){
 function Download-Official([string]$uri,[string]$destination){
  $client=New-Object Net.WebClient
  try{
-  $client.Headers['User-Agent']='InkNote-Setup/0.5.0'
+  $client.Headers['User-Agent']='InkNote-Setup/0.6.1'
   $task=$client.DownloadFileTaskAsync([Uri]$uri,$destination)
   $watch=[Diagnostics.Stopwatch]::StartNew()
   while(-not $task.IsCompleted){

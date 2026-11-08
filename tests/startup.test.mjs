@@ -29,7 +29,7 @@ async function fixture(t){
  }
  const fakeFs={...fs,async rename(from,to){await fs.rename(from,to);if(to===report)renamed.resolve();}};
  const electron={app,BrowserWindow,ipcMain,protocol:{registerSchemesAsPrivileged(){},handle(){}},session:{defaultSession:{setPermissionRequestHandler(){},setPermissionCheckHandler(){}}},Menu:{setApplicationMenu(){}},dialog:{showErrorBox(title,message){state.error={title,message};}}};
- vm.runInNewContext(source,{require:name=>name==='electron'?electron:name==='node:fs/promises'?fakeFs:name==='./converter.cjs'?{convertEbook(){}}:require(name),__dirname:path.dirname(mainFile),process:{argv:['InkNote.exe','--startup-report',report],pid:process.pid},URL,Response,setTimeout:()=>1,clearTimeout(){},console},{filename:mainFile});
+ vm.runInNewContext(source,{require:name=>name==='electron'?electron:name==='node:fs/promises'?fakeFs:name==='./converter.cjs'?{convertEbook(){}}:name==='./exchange.cjs'?{register(){}}:require(name),__dirname:path.dirname(mainFile),process:{argv:['InkNote.exe','--startup-report',report],pid:process.pid},URL,Response,setTimeout:()=>1,clearTimeout(){},console},{filename:mainFile});
  await loaded.promise;await tick();
  const event=url=>({sender:state.window.webContents,senderFrame:{url}});
  async function waitReport(){let timer;try{await Promise.race([renamed.promise,new Promise((_,reject)=>timer=setTimeout(()=>reject(new Error('No startup report')),2000))]);await tick();return JSON.parse(await fs.readFile(report,'utf8'));}finally{clearTimeout(timer);}}

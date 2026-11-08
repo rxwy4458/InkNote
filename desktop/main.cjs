@@ -33,7 +33,7 @@ protocol.registerSchemesAsPrivileged([{scheme:'inknote',privileges:{standard:tru
 app.setAppUserModelId('com.inknote.desktop');
 let win,allowClose=false,closePending=false,rendererReady=false;
 function trusted(event){try{const u=new URL(event.senderFrame.url);return event.sender===win?.webContents&&u.protocol==='inknote:'&&u.hostname==='app';}catch{return false;}}
-const types={'.html':'text/html; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.wasm':'application/wasm','.json':'application/json','.ttf':'font/ttf'};
+const types={'.html':'text/html; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.wasm':'application/wasm','.json':'application/json','.ttf':'font/ttf','.woff2':'font/woff2','.woff':'font/woff','.png':'image/png','.ico':'image/x-icon'};
 if(!app.requestSingleInstanceLock())app.quit();
 else{
  app.on('second-instance',()=>{if(win){if(win.isMinimized())win.restore();win.focus();}});
@@ -70,6 +70,31 @@ else{
   ipcMain.handle('inknote:convert-ebook',async(event,payload)=>{
    if(!trusted(event))return {ok:false,error:'操作来源无效'};if(converting)return {ok:false,error:'另一本电子书正在转换，请稍候'};converting=true;
    try{return {ok:true,bytes:await convertEbook(payload,converterPath)};}catch(e){return {ok:false,error:e.message};}finally{converting=false;}
+  });
+  require('./exchange.cjs').register(ipcMain,trusted);
+  // Large exports arrive in chunks: begin (save dialog + temporary file) → chunk… → end (rename, or delete on failure).
+  const saves=new Map(),MAX_SAVE=2*1024*1024*1024;
+  ipcMain.handle('inknote:save-begin',async(event,payload)=>{
+   if(!trusted(event))return {error:'操作来源无效。'};
+   if(!payload||typeof payload.name!=='string'||!Number.isSafeInteger(payload.size)||payload.size<0||payload.size>MAX_SAVE)return {error:'导出数据无效或文件过大。'};
+   const ext=path.extname(payload.name).toLowerCase();if(!['.pdf','.inknote'].includes(ext))return {error:'不支持此文件类型。'};
+   const name=path.basename(payload.name).replace(/[<>:"/\\|?*\x00-\x1f]/g,'_');
+   const result=await dialog.showSaveDialog(win,{defaultPath:name,filters:[{name:ext==='.pdf'?'PDF 文档':'InkNote 可编辑备份',extensions:[ext.slice(1)]}]});
+   if(result.canceled||!result.filePath)return {saved:false};
+   const temporary=path.join(path.dirname(result.filePath),'.inknote-'+randomUUID()+'.tmp');
+   try{const handle=await fs.open(temporary,'wx');const token=randomUUID();saves.set(token,{handle,temporary,target:result.filePath,size:payload.size,written:0});return {token};}
+   catch(e){return {error:'导出失败：'+e.message};}
+  });
+  ipcMain.handle('inknote:save-chunk',async(event,payload)=>{
+   if(!trusted(event))return {error:'操作来源无效。'};const s=saves.get(payload?.token);
+   if(!s||!ArrayBuffer.isView(payload.bytes)||payload.bytes.byteLength>64*1024*1024||s.written+payload.bytes.byteLength>s.size)return {error:'导出数据无效。'};
+   try{await s.handle.write(Buffer.from(payload.bytes.buffer,payload.bytes.byteOffset,payload.bytes.byteLength));s.written+=payload.bytes.byteLength;return {ok:true};}
+   catch(e){return {error:'导出失败：'+e.message};}
+  });
+  ipcMain.handle('inknote:save-end',async(event,payload)=>{
+   if(!trusted(event))return {error:'操作来源无效。'};const s=saves.get(payload?.token);if(!s)return {error:'导出已结束。'};saves.delete(payload.token);
+   try{await s.handle.close();if(payload.ok===true&&s.written===s.size){await fs.rename(s.temporary,s.target);return {saved:true};}await fs.unlink(s.temporary).catch(()=>{});return {saved:false,error:payload.ok===true?'导出的数据不完整。':undefined};}
+   catch(e){await fs.unlink(s.temporary).catch(()=>{});return {error:'导出失败：'+e.message};}
   });
   ipcMain.handle('inknote:save-file',async(event,payload)=>{
    if(!trusted(event))return {error:'操作来源无效。'};

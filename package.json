@@ -1,7 +1,7 @@
 {
   "name": "inknote",
   "productName": "InkNote",
-  "version": "0.5.0",
+  "version": "0.6.1",
   "description": "墨页：PDF、时间画布、电子书与一页一帖的楼中楼笔记",
   "main": "desktop/main.cjs",
   "author": "InkNote",

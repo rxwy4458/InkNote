@@ -11,6 +11,10 @@ ROOT=Path(__file__).resolve().parents[1]
 MARKER=b'INKNOTE_APP_V03!'
 FOOTER_SIZE=88
 KERNEL=['GetModuleFileNameW','GetTempPathW','GetSystemDirectoryW','GetCurrentProcessId','CreateDirectoryW','CreateFileW','WriteFile','CloseHandle','DeleteFileW','RemoveDirectoryW','CreateProcessW','WaitForSingleObject','GetExitCodeProcess','ExitProcess']
+
+def _pe_icon():
+    import importlib.util
+    spec=importlib.util.spec_from_file_location('pe_icon',ROOT/'installer/pe_icon.py');module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
 def u16(b,o):return struct.unpack_from('<H',b,o)[0]
 def u32(b,o):return struct.unpack_from('<I',b,o)[0]
 
@@ -85,6 +89,7 @@ def build(output,runtime_archive=None):
         struct.pack_into('<II',binary,opt+112+8,rva+descriptor,60)
         struct.pack_into('<II',binary,opt+112+12*8,rva+offset,18*8)
         struct.pack_into('<I',binary,opt+64,0)
+        binary=_pe_icon().add_icon_resource(binary,(ROOT/'app/icon.ico').read_bytes())
         uninstall=temporary/'uninstall.exe'
         subprocess.run([sys.executable,str(ROOT/'installer/build-uninstaller.py'),'--current',str(uninstall)],check=True,stdout=subprocess.DEVNULL)
         app=io.BytesIO()

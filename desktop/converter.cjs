@@ -13,7 +13,7 @@ async function locateConverter(configured){
  return null;
 }
 async function convertEbook(payload,configured){
- if(!payload||typeof payload.name!=='string'||!ArrayBuffer.isView(payload.bytes)||payload.bytes.byteLength>200*1024*1024)throw new Error('电子书文件无效或超过 200 MB');
+ if(!payload||typeof payload.name!=='string'||!ArrayBuffer.isView(payload.bytes)||payload.bytes.byteLength>1024*1024*1024)throw new Error('电子书文件无效或超过 1 GB');
  const ext=path.extname(payload.name).slice(1).toLowerCase();if(!formats.has(ext))throw new Error('不支持此转换格式');
  const executable=await locateConverter(configured);
  if(!executable)throw new Error('此格式需要本机 Calibre 转换组件。请安装 Calibre，或在「偏好设置」选择 ebook-convert.exe。EPUB、TXT、FB2、CBZ 可直接导入。');
@@ -27,7 +27,7 @@ async function convertEbook(payload,configured){
    child.on('error',e=>{clearTimeout(timer);reject(new Error('转换组件无法启动：'+e.message));});
    child.on('close',code=>{clearTimeout(timer);if(timedOut)reject(new Error('电子书转换超过 2 分钟，请先用 Calibre 单独转换为 EPUB'));else if(code!==0)reject(new Error(/DRM|encrypted/i.test(details)?'电子书受 DRM 或密码保护，请使用原阅读软件导出可读取的副本':'Calibre 未能转换这份电子书，请检查文件是否损坏或格式受支持'));else resolve();});
   });
-  const stat=await fs.stat(output);if(stat.size>128*1024*1024)throw new Error('转换后的 EPUB 超过 128 MB');const data=await fs.readFile(output);if(data[0]!==0x50||data[1]!==0x4b)throw new Error('转换输出不是有效 EPUB');return new Uint8Array(data);
+  const stat=await fs.stat(output);if(stat.size>1024*1024*1024)throw new Error('转换后的 EPUB 超过 1 GB');const data=await fs.readFile(output);if(data[0]!==0x50||data[1]!==0x4b)throw new Error('转换输出不是有效 EPUB');return new Uint8Array(data);
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 }
 module.exports={locateConverter,convertEbook};

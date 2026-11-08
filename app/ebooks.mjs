@@ -1,7 +1,7 @@
 import {uid,newPage} from './core.mjs';
 export const DIRECT_BOOK_FORMATS=['epub','txt','fb2','html','htm','cbz','md'];
 export const CONVERT_BOOK_FORMATS=['mobi','azw','azw3','azw4','prc','rtf','docx','odt','chm','lit','lrf','pdb','snb','tcr','djvu','cbr'];
-const MAX_EXPANDED=128*1024*1024;
+const MAX_EXPANDED=1024*1024*1024;
 const local=n=>String(n||'').split(':').at(-1).toLowerCase();
 const elements=n=>(n?.elements||[]).filter(x=>x.type==='element');
 function descendants(n,name){const result=[];for(const x of elements(n)){if(local(x.name)===name)result.push(x);result.push(...descendants(x,name));}return result;}
@@ -29,7 +29,7 @@ export function inspectZip(bytes){
   if(pos+46>end||v.getUint32(pos,true)!==0x02014b50)throw new Error('电子书目录损坏');
   const flags=v.getUint16(pos+8,true),expanded=v.getUint32(pos+24,true),nl=v.getUint16(pos+28,true),el=v.getUint16(pos+30,true),cl=v.getUint16(pos+32,true);
   if(flags&1)throw new Error('该电子书使用加密容器，需要先使用原阅读软件导出未加密副本');
-  if(expanded>32*1024*1024||(total+=expanded)>MAX_EXPANDED)throw new Error('电子书解压内容超过 128 MB，或单个资源超过 32 MB');
+  if(expanded>64*1024*1024||(total+=expanded)>MAX_EXPANDED)throw new Error('电子书解压内容超过 1 GB，或单个资源超过 64 MB');
   if(pos+46+nl+el+cl>offset+size)throw new Error('电子书目录越界');
   const name=new TextDecoder('utf-8').decode(bytes.subarray(pos+46,pos+46+nl));const safe=zipPath('',name);if(names.has(safe))throw new Error('电子书包含重复资源');names.add(safe);pos+=46+nl+el+cl;
  }
@@ -61,6 +61,10 @@ async function extractBlocks(node,resolveImage){
 async function epub(bytes,name,adapters){
  inspectZip(bytes);const ZIP=adapters.JSZip||globalThis.JSZip;if(!ZIP)throw new Error('EPUB 解压组件未加载');const zip=await ZIP.loadAsync(bytes);
  const container=zip.file('META-INF/container.xml');if(!container)throw new Error('EPUB 缺少 META-INF/container.xml');
+ // Publisher DRM (Adobe ADEPT, Readium LCP, Apple FairPlay…) encrypts the chapters themselves. Font obfuscation
+ // (IDPF / Adobe font mangling) is not DRM and is fine: only the fonts are scrambled.
+ const rights=zip.file('META-INF/rights.xml')||zip.file('META-INF/license.lcpl')||zip.file('META-INF/sinf.xml'),enc=zip.file('META-INF/encryption.xml');
+ if(rights||(enc&&[...(await enc.async('string')).matchAll(/<(?:\w+:)?EncryptionMethod[^>]*Algorithm="([^"]+)"/g)].some(m=>!/idpf\.org\/2008\/embedding|ns\.adobe\.com\/pdf\/enc#RC/.test(m[1]))))throw new Error('这本 EPUB 使用了出版方的版权保护（DRM），内容是加密的，墨页无法读取。请在购买它的阅读软件中阅读，或向出版方索取无 DRM 的版本。');
  const xml=parseXml(await container.async('string'),adapters);const root=descendants(xml,'rootfile')[0]?.attributes?.['full-path'];if(!root)throw new Error('EPUB 缺少内容索引');const opfPath=zipPath('',root),opfFile=zip.file(opfPath);if(!opfFile)throw new Error('EPUB 内容索引不存在');
  const opf=parseXml(await opfFile.async('string'),adapters);const title=plain(text(descendants(opf,'title')[0]))||name;const author=plain(text(descendants(opf,'creator')[0]));const manifest=new Map(descendants(opf,'item').map(n=>[n.attributes?.id,n.attributes]));
  const imageTypes=new Map([...manifest.values()].filter(n=>n?.href).map(n=>[zipPath(opfPath,n.href),n['media-type']]));

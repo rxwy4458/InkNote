@@ -76,7 +76,7 @@ static int inside_root(const W*s){U32 n=length(legacy_root);return n>0&&prefix(s
 static int old_name(const W*name){
  if(equal(name,(const W*)L"InkNote-0.2.0"))return 1;
 #ifdef INKNOTE_CURRENT
- if(equal(name,(const W*)L"InkNote-0.3.1")||equal(name,(const W*)L"InkNote-0.3.2")||equal(name,(const W*)L"InkNote-0.3.3")||equal(name,(const W*)L"InkNote-0.4.0")||equal(name,(const W*)L"InkNote-0.5.0"))return 1;
+ if(equal(name,(const W*)L"InkNote-0.3.1")||equal(name,(const W*)L"InkNote-0.3.2")||equal(name,(const W*)L"InkNote-0.3.3")||equal(name,(const W*)L"InkNote-0.4.0")||equal(name,(const W*)L"InkNote-0.5.0")||equal(name,(const W*)L"InkNote-0.6.0")||equal(name,(const W*)L"InkNote-0.6.1"))return 1;
 #endif
  const W*p=(const W*)L".previous-";if(!prefix(name,p)||length(name)!=length(p)+32)return 0;
  for(U32 i=length(p);name[i];i++){W c=lower(name[i]);if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')))return 0;}return 1;
@@ -105,6 +105,8 @@ static int identifies_app(void){
  version=version||ascii_has(manifest,n,"\"version\":\"0.3.3\"")||ascii_has(manifest,n,"\"version\": \"0.3.3\"");
  version=version||ascii_has(manifest,n,"\"version\":\"0.4.0\"")||ascii_has(manifest,n,"\"version\": \"0.4.0\"");
  version=version||ascii_has(manifest,n,"\"version\":\"0.5.0\"")||ascii_has(manifest,n,"\"version\": \"0.5.0\"");
+ version=version||ascii_has(manifest,n,"\"version\":\"0.6.0\"")||ascii_has(manifest,n,"\"version\": \"0.6.0\"");
+ version=version||ascii_has(manifest,n,"\"version\":\"0.6.1\"")||ascii_has(manifest,n,"\"version\": \"0.6.1\"");
 #endif
  return (ascii_has(manifest,n,"\"name\":\"inknote\"")||ascii_has(manifest,n,"\"name\": \"inknote\""))&&version;
 }

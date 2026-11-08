@@ -31,6 +31,9 @@ def pe_imports(data):
   imports[string(name).lower()]=names;cursor+=20
  return imports
 imports=pe_imports(binary)
+def has_icon(data):
+ pe=builder.u32(data,0x3c);opt=pe+24;return builder.u32(data,opt+112+2*8)!=0
+assert has_icon(binary),'installer icon resource missing'
 assert imports=={'kernel32.dll':builder.KERNEL,'user32.dll':['MessageBoxW']}
 with zipfile.ZipFile(io.BytesIO(report['payload'])) as archive:
  offline='tools/runtime.json' in archive.namelist()
@@ -43,6 +46,7 @@ with zipfile.ZipFile(io.BytesIO(report['payload'])) as archive:
  assert '发新楼层'.encode() in archive.read('app/app.mjs')
  uninstall=archive.read('tools/uninstall.exe')
  assert 'RegDeleteTreeW' in pe_imports(uninstall)['advapi32.dll']
+ assert has_icon(uninstall),'uninstaller icon resource missing'
  assert ('InkNote-'+version).encode('utf-16le') in uninstall
  if offline:
   runtime=json.loads(archive.read('tools/runtime.json'))

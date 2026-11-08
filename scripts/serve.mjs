@@ -8,7 +8,7 @@ const port=Number(arg('--port')||process.env.PORT||43877),host=arg('--host')||pr
 const types={'.html':'text/html; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.wasm':'application/wasm','.json':'application/json','.ttf':'font/ttf','.pdf':'application/pdf'};
 http.createServer(async(req,res)=>{try{
  if(!['GET','HEAD'].includes(req.method)){res.writeHead(405);return res.end();}
- const u=new URL(req.url,'http://localhost');if(u.pathname==='/__inknote_health'){res.writeHead(200,{'Content-Type':'application/json'});return res.end('{"product":"InkNote","version":"0.5.0"}');}
+ const u=new URL(req.url,'http://localhost');if(u.pathname==='/__inknote_health'){res.writeHead(200,{'Content-Type':'application/json'});return res.end('{"product":"InkNote","version":"0.6.1"}');}
  const file=path.resolve(root,'.'+decodeURIComponent(u.pathname==='/'?'/index.html':u.pathname));
  if(!file.startsWith(root+path.sep)){res.writeHead(403);return res.end();}
  const s=await stat(file);if(!s.isFile()){res.writeHead(404);return res.end();}

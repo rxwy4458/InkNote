@@ -70,9 +70,11 @@ int main(void){
 #ifdef INKNOTE_CURRENT
  nodes[6].contents="{\"name\":\"inknote\",\"version\":\"0.4.0\"}";assert(identifies_app());
  nodes[6].contents="{\"name\":\"inknote\",\"version\":\"0.5.0\"}";assert(identifies_app());
- nodes[6].contents="{\"name\":\"inknote\",\"version\":\"0.5.1\"}";assert(!identifies_app());
+ nodes[6].contents="{\"name\":\"inknote\",\"version\":\"0.6.0\"}";assert(identifies_app());
+ nodes[6].contents="{\"name\":\"inknote\",\"version\":\"0.6.1\"}";assert(identifies_app());
+ nodes[6].contents="{\"name\":\"inknote\",\"version\":\"0.6.2\"}";assert(!identifies_app());
 #else
- nodes[6].contents="{\"name\":\"inknote\",\"version\":\"0.5.0\"}";assert(!identifies_app());
+ nodes[6].contents="{\"name\":\"inknote\",\"version\":\"0.6.1\"}";assert(!identifies_app());
 #endif
  nodes[6].contents="{\"name\":\"inknote\",\"version\":\"0.2.0\"}";
  remove_tree(0);assert(removed==4);assert(failed==0);assert(retained==5);assert(readonly_cleared==1);
@@ -85,7 +87,9 @@ int main(void){
  assert(old_target((const W*)L"C:\\Legacy\\InkNote-0.3.3\\InkNote.exe"));
  assert(old_target((const W*)L"C:\\Legacy\\InkNote-0.4.0\\InkNote.exe"));
  assert(old_target((const W*)L"C:\\Legacy\\InkNote-0.5.0\\InkNote.exe"));
- assert(!old_target((const W*)L"C:\\Legacy\\InkNote-0.5.1\\InkNote.exe"));
+ assert(old_target((const W*)L"C:\\Legacy\\InkNote-0.6.0\\InkNote.exe"));
+ assert(old_target((const W*)L"C:\\Legacy\\InkNote-0.6.1\\InkNote.exe"));
+ assert(!old_target((const W*)L"C:\\Legacy\\InkNote-0.6.2\\InkNote.exe"));
  registered_location=(const W*)L"C:\\Other\\InkNote-0.3.1";remove_registration();assert(registrations_removed==0);
  registered_location=(const W*)L"C:\\LegacyOther\\InkNote-0.3.1";remove_registration();assert(registrations_removed==0);
  registered_location=(const W*)L"C:\\Legacy\\Unrelated";remove_registration();assert(registrations_removed==0);

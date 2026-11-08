@@ -18,6 +18,10 @@ for kind,dll,name in definitions:
     else:assert dll in groups and groups[dll][-1][0]==slot_count-1
     slot_count+=1
 assert 0<slot_count<64
+
+def _pe_icon():
+    import importlib.util
+    spec=importlib.util.spec_from_file_location('pe_icon',ROOT/'installer/pe_icon.py');module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
 def u16(b,o):return struct.unpack_from('<H',b,o)[0]
 def u32(b,o):return struct.unpack_from('<I',b,o)[0]
 
@@ -59,5 +63,6 @@ with tempfile.TemporaryDirectory(prefix='inknote-uninstall-') as temporary:
     struct.pack_into('<II',binary,opt+112+8,rva+descriptor,(len(groups)+1)*20)
     struct.pack_into('<II',binary,opt+112+12*8,rva+offset,slot_count*8)
     struct.pack_into('<I',binary,opt+64,0)
+    binary=_pe_icon().add_icon_resource(binary,(ROOT/'app/icon.ico').read_bytes())
     OUT.write_bytes(binary)
     print(json.dumps({'exe':str(OUT),'bytes':OUT.stat().st_size,'architecture':'Windows x64','subsystem':'GUI','runtime':'Windows system DLLs only','windows_tested':False}))

@@ -1,7 +1,7 @@
 // Material Symbols Rounded (Apache-2.0), subset to the icons below in fonts/material-symbols-rounded-subset.woff2.
 // Icons are addressed by codepoint, so they render without relying on ligatures. To add an icon, add its
 // symbol name, then re-subset the font with fontTools (populate(unicodes=...), instance GRAD=0 and opsz=24).
-// Source symbol names: comment=comment, post=forum, book=menu_book, reading=auto_stories, grid=grid_view, list=view_list, clock=history, time=schedule, star=star, folder=folder, plus=add, upload=upload, search=search, chevron=chevron_right, left=chevron_left, down=expand_more, more=more_horiz, more-v=more_vert, arrow=arrow_back, pen=stylus, draw=draw, edit=edit, marker=ink_highlighter, eraser=ink_eraser, text=text_fields, rect=rectangle, lasso=lasso_select, hand=pan_tool, undo=undo, redo=redo, download=download, check=check, check-circle=check_circle, close=close, trash=delete, bookmark=bookmark, pages=view_sidebar, minus=remove, fit=fit_screen, help=help, settings=tune, gear=settings, shield=verified_user, storage=hard_drive, leaf=eco, spark=auto_awesome, rotate=rotate_right, file=picture_as_pdf, info=info, calendar=calendar_month, date-add=calendar_add_on, image=add_photo_alternate, reply=reply, home=home, library=library_books, palette=palette, send=arrow_upward, dark=dark_mode, light=light_mode, auto=brightness_auto, colorize=colorize, save=save, error=error, new-note=note_stack_add, sync=sync, split=vertical_split, swap=swap_horiz, copy=content_copy, paste=content_paste, cut=content_cut, up=arrow_upward, down-arrow=arrow_downward, title=title, gesture=gesture, select-all=select_all, spacing=format_line_spacing, margin=border_left, page-setup=article, duplicate=library_add, drag=drag_indicator, dock=dock_to_bottom, continuous=view_agenda, single-page=crop_portrait
+// Source symbol names: comment=comment, post=forum, book=menu_book, reading=auto_stories, grid=grid_view, list=view_list, clock=history, time=schedule, star=star, folder=folder, plus=add, upload=upload, search=search, chevron=chevron_right, left=chevron_left, down=expand_more, more=more_horiz, more-v=more_vert, arrow=arrow_back, pen=stylus, draw=draw, edit=edit, marker=ink_highlighter, eraser=ink_eraser, text=text_fields, rect=rectangle, lasso=lasso_select, hand=pan_tool, undo=undo, redo=redo, download=download, check=check, check-circle=check_circle, close=close, trash=delete, bookmark=bookmark, pages=view_sidebar, minus=remove, fit=fit_screen, help=help, settings=tune, gear=settings, shield=verified_user, storage=hard_drive, leaf=eco, spark=auto_awesome, rotate=rotate_right, file=picture_as_pdf, info=info, calendar=calendar_month, date-add=calendar_add_on, image=add_photo_alternate, reply=reply, home=home, library=library_books, palette=palette, send=arrow_upward, dark=dark_mode, light=light_mode, auto=brightness_auto, colorize=colorize, save=save, error=error, new-note=note_stack_add, sync=sync, split=vertical_split, swap=swap_horiz, copy=content_copy, paste=content_paste, cut=content_cut, up=arrow_upward, down-arrow=arrow_downward, title=title, gesture=gesture, select-all=select_all, spacing=format_line_spacing, margin=border_left, page-setup=article, duplicate=library_add, drag=drag_indicator, dock=dock_to_bottom, continuous=view_agenda, single-page=crop_portrait, cloud=cloud, cloud-done=cloud_done, cloud-sync=cloud_sync, cloud-off=cloud_off, login=login, logout=logout
 const codes={
  "comment":0xE0B9,
  "post":0xE0BF,
@@ -85,7 +85,13 @@ const codes={
  "drag":0xE945,
  "dock":0xF7E6,
  "continuous":0xE8E9,
- "single-page":0xE3C5
+ "single-page":0xE3C5,
+ "cloud":0xE2BD,
+ "cloud-done":0xE2BF,
+ "cloud-sync":0xEB5A,
+ "cloud-off":0xE2C1,
+ "login":0xEA77,
+ "logout":0xE9BA
 };
 export function icon(name,cls=''){return `<span class="icon ${cls}" aria-hidden="true">&#x${(codes[name]||codes.info).toString(16)};</span>`;}
 export const iconNames=Object.keys(codes);

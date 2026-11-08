@@ -1,5 +1,8 @@
 import {icon} from './icons.mjs';
-import {uid,escapeHTML as E,clamp,COLORS,MARKERS,newPage,bounds,inside,intersects,hitAnnotation,translate,drawAnnotation,distanceToSegment,PAPER} from './core.mjs';
+import {writeZip,readZip,readEntry,isZip} from './bundle.mjs';
+import {renderInto,renderMath,storageFrom,sanitizeHtml,markdownToHtml,textToHtml,plainToHtml,richPlainText,extractMath,measureRich,prepareRich,cachedRaster,htmlToMarkdown,postHtml,postPlain} from './richtext.mjs';
+import {uid,escapeHTML as E,clamp,COLORS,MARKERS,newPage,bounds,inside,intersects,hitAnnotation,translate,drawAnnotation,distanceToSegment,PAPER,setRichPainter} from './core.mjs';
+setRichPainter(cachedRaster);
 import {store} from './storage.mjs';
 import {newInfinitePage,nonnegative,growExtent,visibleAnnotations,drawInfinitePaper,dateLabel,contentExtent,setPaperAccent,pageHeader,SPACINGS} from './infinite.mjs';
 import {parseBook,paginateBook,validateReading,DIRECT_BOOK_FORMATS,CONVERT_BOOK_FORMATS} from './ebooks.mjs';
@@ -92,14 +95,14 @@ function renderLibrary(){
  const newCard=!S.query?newCardFor(S.view):'';
  const empty=!filtered.length?(S.query?`<div class="empty-state"><span class="empty-art cookie">${icon('search')}</span><h3>没有找到“${E(S.query)}”</h3><p>已搜索笔记标题、页面标题、文字、批注和帖子内容。PDF 原文请打开后按 Ctrl F 查找。</p></div>`:emptyFor(S.view)):'';
  view.innerHTML=`<aside class="nav-drawer">
- <div class="sidebar-brand drag"><span class="brand-mark cookie" aria-hidden="true">墨</span><span class="brand-name">墨页</span></div>
+ <div class="sidebar-brand drag"><img class="brand-logo" src="icon.svg" alt="" aria-hidden="true"><span class="brand-name">墨页</span></div>
  <div class="sidebar-new"><button class="fab extended" data-action="new-chooser" title="新建画布、帖子或导入文件">${icon('edit')}<span>新建</span></button></div>
  <nav class="side-nav" aria-label="笔记分类">${NAV_MAIN.map(navItem).join('')}
   <div class="side-label">分类</div>${NAV_KINDS.map(navItem).join('')}
   <div class="side-label">文件夹<button class="icon-btn tiny" data-action="new-folder" title="新建文件夹" aria-label="新建文件夹">${icon('plus')}</button></div>
   ${S.folders.map((f,i)=>`<button class="nav-item ${S.view==='folder:'+f?'active':''}" data-action="view" data-value="folder:${E(f)}"><span class="nav-indicator folder-${i%4}">${icon('folder')}</span><span class="nav-label">${E(f)}</span><span class="nav-count">${S.docs.filter(d=>d.folder===f).length||''}</span></button>`).join('')}
  </nav>
- <div class="sidebar-foot" title="笔记保存在这台电脑的应用数据中，换电脑前请导出 .inknote 备份"><div class="storage-label">${icon('storage')}<span>本机存储</span></div><div class="storage-bar"><span id="storage-bar"></span></div><small id="storage-text">笔记只保存在这台电脑</small></div>
+ <div class="sidebar-foot" title="笔记保存在这台电脑的应用数据中，换电脑前请导出 .inknote 备份"><div class="storage-label">${icon('storage')}<span>本机存储</span></div><div class="storage-bar"><span id="storage-bar"></span></div><small id="storage-text">笔记只保存在这台电脑</small><button type="button" class="exchange-status" id="exchange-status" data-action="exchange"><span class="exchange-icon">${icon('folder')}</span><span class="exchange-text">一键导入导出</span></button></div>
 </aside>
 <main class="library">
  <header class="library-top drag"><label class="search-bar">${icon('search')}<input id="library-search" type="search" placeholder="搜索笔记标题和内容" aria-label="搜索笔记标题和内容" value="${E(S.query)}" autocomplete="off"><kbd>Ctrl K</kbd></label><span class="spacer"></span><button class="icon-btn" data-action="theme" title="配色与外观" aria-label="配色与外观">${icon('palette')}</button><button class="icon-btn" data-action="import" title="导入 PDF、电子书或 .inknote 备份" aria-label="导入">${icon('upload')}</button><button class="icon-btn" data-action="help" title="快捷键与帮助" aria-label="帮助">${icon('help')}</button><button class="icon-btn" data-action="settings" title="设置" aria-label="设置">${icon('gear')}</button></header>
@@ -114,12 +117,12 @@ function renderLibrary(){
  </div></div>
 </main>`;
  $('#library-search').addEventListener('input',e=>{const p=e.target.selectionStart;S.query=e.target.value;renderLibrary();const input=$('#library-search');input.focus();try{input.setSelectionRange(p,p);}catch{}});
- $('#sort-select').onchange=e=>{S.sort=e.target.value;renderLibrary();};
+ $('#sort-select').onchange=e=>{S.sort=e.target.value;renderLibrary();};refreshExchangeBadge();
  run(refreshStorage);
 }
 function preview(d){
  const p=d.pages[0]||{};
- if(d.kind==='discussion'){const first=roots(p).slice().sort((a,b)=>(a.floorNumber||0)-(b.floorNumber||0))[0];const text=first?.body||'';const pics=(first?.images||[]).length;const s=discussionStats(d);return `<div class="pv pv-post"><div class="pv-post-head"><span class="pv-avatar cookie">我</span><span class="pv-floor">1楼</span></div><p>${E(text.slice(0,140))||(pics?`${pics} 张图片`:'')}</p><span class="pv-post-stats">${s.threads} 个楼层 · ${s.replies} 条回复</span></div>`;}
+ if(d.kind==='discussion'){const first=roots(p).slice().sort((a,b)=>(a.floorNumber||0)-(b.floorNumber||0))[0];const text=postPlain((first?.body||'').slice(0,1200));const pics=(first?.images||[]).length;const s=discussionStats(d);return `<div class="pv pv-post"><div class="pv-post-head"><span class="pv-avatar cookie">我</span><span class="pv-floor">1楼</span></div><p>${E(text.slice(0,140))||(pics?`${pics} 张图片`:'')}</p><span class="pv-post-stats">${s.threads} 个楼层 · ${s.replies} 条回复</span></div>`;}
  if(d.kind==='pdf')return `<div class="pv pv-pdf"><div class="pv-sheet"><i></i><i></i><i></i><i class="pv-mark"></i><i></i><i></i><i></i></div></div>`;
  if(d.kind==='ebook')return `<div class="pv pv-book"><div class="pv-cover"><span>${E(d.format||'BOOK')}</span><strong>${E(d.title)}</strong>${d.author?`<small>${E(d.author)}</small>`:''}</div></div>`;
  const tone=TONES.includes(d.color)?d.color:'olive',paper=['blank','ruled','grid','dot','guide'].includes(p.template)?p.template:'blank';
@@ -197,7 +200,7 @@ function themeDialog(){
 }
 async function renameDoc(id=S.active){const d=S.docs.find(x=>x.id===id);if(!d)return;const value=await ask('重命名','名称',d.title);if(value){const old=d.title,p0=d.pages[0];if(d.kind==='notebook'&&p0&&p0.template!=='guide'&&p0.sourceIndex===null&&p0.title!==undefined&&(p0.title===old||!p0.title)){p0.title=value;if(S.active===id){updateThumbTitle(0,value);if(S.page===0)run(()=>showPage({resetScroll:false}));updateThumb(0);}}d.title=value;d.updatedAt=Date.now();await store.save(d);if(S.active){refreshTitle();if(d.kind==='discussion')$('.discussion-intro h1').textContent=d.title;}else renderLibrary();}}
 function moveDoc(id){const d=S.docs.find(x=>x.id===id);dialog('移动到文件夹',`<label class="field-label" for="target-folder">文件夹</label><select class="field-input" id="target-folder" name="folder"><option value="">未分类</option>${S.folders.map(f=>`<option ${d.folder===f?'selected':''} value="${E(f)}">${E(f)}</option>`).join('')}</select>${actions('移动')}`,{submit:async f=>{d.folder=f.get('folder');await store.save(d);closeModal();if(!S.active)renderLibrary();toast('笔记已移动');}});}
-function deleteDoc(id){const d=S.docs.find(x=>x.id===id);dialog('删除这本笔记？',`<p class="help-note">“${E(d.title)}”将从本机移除，无法撤销。需要的话，先在「⋯」菜单里导出一份 .inknote 备份。</p>${actions('删除',true)}`,{submit:async()=>{await flush();await store.remove(id);S.docs=S.docs.filter(x=>x.id!==id);S.tabs=S.tabs.filter(x=>x!==id);history.delete(id);closeModal();if(S.active===id||!S.active)renderLibrary();toast('笔记已删除');}});}
+function deleteDoc(id){const d=S.docs.find(x=>x.id===id);dialog('删除这本笔记？',`<p class="help-note">“${E(d.title)}”将从本机移除，无法撤销。需要的话，先在「⋯」菜单里导出一份 .inknote 备份。</p>${actions('删除',true)}`,{submit:async()=>{await flush();await store.remove(id);S.docs=S.docs.filter(x=>x.id!==id);S.tabs=S.tabs.filter(x=>x!==id);history.delete(id);closeModal();if(S.active===id||!S.active)renderLibrary();toast('笔记已删除');markExchangeDeleted(id);}});}
 
 async function openDoc(id){
  if(S.split?.id===id){S.split.frame.focus();toast('这本笔记正在右侧分屏中，可以直接在右侧编辑');return;}
@@ -224,7 +227,7 @@ function renderEditor(){
  <div class="editor-body">
   <aside class="page-sidebar ${S.sidebar?'':'collapsed'}" aria-label="页面"><div class="page-side-title"><select id="thumb-filter" aria-label="页面筛选"><option value="all">全部页面</option><option value="bookmark">书签页</option></select><span class="spacer"></span><span class="count-badge" id="side-page-count">${d.pages.length}</span></div><div class="page-thumbs" id="page-thumbs"></div><div class="page-side-bottom"><button class="btn tonal block" data-action="add-page">${icon('plus')}添加页面</button></div></aside>
   <div class="stage" data-dock="${S.toolbarDock}">
-   <section class="canvas-workspace" id="workspace" aria-label="文档书写区域"><div class="page-wrapper" id="page-wrapper"><canvas class="pdf-canvas" id="pdf-canvas"></canvas><canvas class="ink-canvas" id="ink-canvas" data-tool="${S.tool}" aria-label="批注画布"></canvas><div class="page-loading" id="page-loading"><i class="loading-inline"></i><span>正在准备这一页…</span></div></div></section>
+   <section class="canvas-workspace" id="workspace" aria-label="文档书写区域"><div class="page-wrapper" id="page-wrapper"><canvas class="pdf-canvas" id="pdf-canvas"></canvas><canvas class="ink-canvas" id="ink-canvas" data-tool="${S.tool}" aria-label="批注画布"></canvas><div class="rich-layer" id="rich-layer"></div><div class="page-loading" id="page-loading"><i class="loading-inline"></i><span>正在准备这一页…</span></div></div></section>
    <div class="page-controls ${S.sidebar?'':'no-sidebar'}" role="group" aria-label="页面与缩放"><button class="icon-btn" data-action="prev" title="上一页 (PageUp)" aria-label="上一页">${icon('left')}</button><button class="page-counter" data-action="jump" id="page-counter" title="跳到指定页">1 / ${d.pages.length}</button><button class="icon-btn" data-action="next" title="下一页 (PageDown)" aria-label="下一页">${icon('chevron')}</button><span class="pc-sep"></span><button class="icon-btn" data-action="zoom-out" title="缩小 (Ctrl 滚轮)" aria-label="缩小">${icon('minus')}</button><button class="zoom-value" data-action="fit" id="zoom-value" title="适合宽度">100%</button><button class="icon-btn" data-action="zoom-in" title="放大 (Ctrl 滚轮)" aria-label="放大">${icon('plus')}</button><button class="icon-btn" data-action="fit" title="适合宽度" aria-label="适合宽度">${icon('fit')}</button><span class="pc-sep"></span><button class="icon-btn scroll-mode-btn" data-action="scroll-mode" title="${scrollModeTitle()}" aria-label="翻页方式">${icon(S.scrollMode==='single'?'single-page':'continuous')}</button></div>
    <div class="selection-bar" id="selection-bar" role="toolbar" aria-label="所选内容" hidden><span class="sel-count"></span><button class="icon-btn" data-action="sel-copy" data-needs-selection title="复制 (Ctrl C)" aria-label="复制">${icon('copy')}</button><button class="icon-btn" data-action="sel-cut" data-needs-selection title="剪切 (Ctrl X)" aria-label="剪切">${icon('cut')}</button><button class="icon-btn" data-action="sel-dup" data-needs-selection title="复制一份 (Ctrl D)" aria-label="复制一份">${icon('duplicate')}</button><button class="icon-btn" data-action="sel-paste" title="粘贴 (Ctrl V)" aria-label="粘贴">${icon('paste')}</button><button class="icon-btn" data-action="sel-delete" data-needs-selection title="删除 (Delete)" aria-label="删除">${icon('trash')}</button></div>
    <div class="toolbar" role="toolbar" aria-label="书写工具">
@@ -265,7 +268,7 @@ function refreshTools(){
   $('#custom-color').oninput=e=>{if(S.tool==='marker')S.marker=e.target.value;else S.color=e.target.value;document.querySelectorAll('.color-dot').forEach(x=>{x.classList.remove('active');x.setAttribute('aria-pressed','false');});e.target.parentElement.classList.add('active');e.target.parentElement.style.setProperty('--swatch',e.target.value);syncTools();};}
  const width=$('#pen-width'),isMarker=S.tool==='marker',isText=S.tool==='text';
  width.min=eraser?6:isText?10:isMarker?6:.5;width.max=eraser?60:isText?48:isMarker?35:8;width.step=eraser||isText||isMarker?1:.1;width.value=eraser?S.eraserSize:isText?S.textSize:isMarker?S.markerWidth:S.width;$('#width-label').textContent=width.value;width.setAttribute('aria-label',eraser?'橡皮擦大小':isText?'文字字号':'笔迹粗细');width.parentElement.title=eraser?'橡皮擦大小':isText?'文字字号':'笔迹粗细';fillRange(width);
- const hints={pen:'画笔 · 自由书写，触控笔支持压感',marker:'荧光笔 · 半透明标记',eraser:S.eraserMode==='partial'?'局部擦除 · 只擦掉经过的部分，再按 E 切换为整笔擦除':'整笔擦除 · 碰到就删除整条笔迹，再按 E 切换为局部擦除',text:'文字 · 点击空白处输入，点击已有文字直接编辑，Ctrl Enter 完成',rect:'矩形 · 拖动绘制方框',lasso:'套索 · 框选后拖动，Ctrl C 复制，Delete 删除，双击文字编辑',hand:'浏览 · 拖动平移页面',comment:'批注 · 点击页面固定位置，或先框选笔迹'};
+ const hints={pen:'画笔 · 自由书写，触控笔支持压感',marker:'荧光笔 · 半透明标记',eraser:S.eraserMode==='partial'?'局部擦除 · 只擦掉经过的部分，再按 E 切换为整笔擦除':'整笔擦除 · 碰到就删除整条笔迹，再按 E 切换为局部擦除',text:'文字 · 点击空白处新建文本框，点已有文字直接修改；可粘贴或拖入带格式的内容、Markdown 和公式，Esc 完成',rect:'矩形 · 拖动绘制方框',lasso:'套索 · 框选后拖动，Ctrl C 复制，Delete 删除，双击文字编辑',hand:'浏览 · 拖动平移页面',comment:'批注 · 点击页面固定位置，或先框选笔迹'};
  $('#tool-hint').textContent=hints[S.tool];syncTools();const ink=$('#ink-canvas');ink.dataset.tool=S.tool;ink.dataset.eraser=S.eraserMode;ink.style.cursor=eraser?eraserCursor():'';updateTouch();refreshSelectionBar();
 }
 function updateTouch(){const c=$('#ink-canvas');if(c)c.style.touchAction=S.penOnly||S.tool==='hand'?'pan-x pan-y':'none';}
@@ -283,13 +286,14 @@ async function renderThumbnails(){
 async function paintThumb(p,pdf){
  const canvas=document.querySelector(`[data-thumb="${p.id}"]`);if(!canvas)return;
  const work=document.createElement('canvas');
+ if(p.annotations.some(a=>a.type==='rich'))await prepareRich(p.annotations,1);
  if(p.infinite){canvas.width=112;canvas.height=150;const c=canvas.getContext('2d'),e=contentExtent(p),scale=Math.min(108/e.width,146/e.height);c.fillStyle='#ffffff';c.fillRect(0,0,112,150);c.save();c.translate(2,2);c.scale(scale,scale);drawInfinitePaper(c,p,{x:0,y:0,width:e.width,height:e.height});p.annotations.forEach(a=>drawAnnotation(c,a));c.restore();return;}
  try{await renderBackground(work,p,pdf,{cssWidth:112,pixelRatio:1.4});const c=work.getContext('2d');c.save();c.scale(work.width/p.width,work.height/p.height);p.annotations.forEach(a=>drawAnnotation(c,a));c.restore();if(!canvas.isConnected)return;canvas.width=work.width;canvas.height=work.height;canvas.getContext('2d').drawImage(work,0,0);}catch(e){console.warn('Thumbnail:',e.message);}
 }
 function updateThumb(i){const p=doc()?.pages[i];if(p)run(()=>paintThumb(p,S.pdf));}
 function updatePageCount(){if(!S.active||!$('#page-counter'))return;$('#page-counter').textContent=`${S.page+1} / ${doc().pages.length}`;$('#side-page-count').textContent=doc().pages.length;$('[data-action="prev"]').disabled=S.page===0;$('[data-action="next"]').disabled=S.page===doc().pages.length-1;document.querySelectorAll('.page-thumb').forEach(t=>t.classList.toggle('active',+t.dataset.index===S.page));}
 async function showPage({resetScroll=true,keepStack=false,prefill=null,at='top'}={}){
- finishText();if(!S.active)return;const epoch=++S.renderEpoch,p=page(),id=S.active,pdf=S.pdf;S.selection.clear();gesture=null;
+ finishText();if(!S.active)return;const epoch=++S.renderEpoch,p=page(),id=S.active,pdf=S.pdf;S.selection.clear();gesture=null;clearRichLayer();
  doc().lastPage=S.page;pending.set(id,doc());clearTimeout(saveTimer);saveTimer=setTimeout(()=>run(flush),150);
  const ws=$('#workspace');ws.classList.toggle('infinite-workspace',!!p.infinite);S.viewport=null;
  for(const c of [$('#pdf-canvas'),$('#ink-canvas')])c.style.cssText='';
@@ -312,11 +316,11 @@ async function showPage({resetScroll=true,keepStack=false,prefill=null,at='top'}
  catch(e){if(epoch===S.renderEpoch){$('#page-loading').textContent='这一页加载失败，请切换页面重试。';throw e;}}
 }
 function point(e){const p=page(),r=(p.infinite?$('#page-wrapper'):$('#ink-canvas')).getBoundingClientRect();const q={x:p.infinite?(e.clientX-r.left)/S.zoom:(e.clientX-r.left)*p.width/r.width,y:p.infinite?(e.clientY-r.top)/S.zoom:(e.clientY-r.top)*p.height/r.height,p:e.pointerType==='pen'?clamp(e.pressure||.5,.05,1):.75};return p.infinite?nonnegative(q):q;}
-function drawInk(){const canvas=$('#ink-canvas'),p=page();if(!canvas||!p)return;const c=canvas.getContext('2d');c.clearRect(0,0,canvas.width,canvas.height);c.save();if(p.infinite&&S.viewport){const v=S.viewport;c.scale(v.scale,v.scale);c.translate(-v.x,-v.y);visibleAnnotations(p.annotations,v).forEach(a=>{if(a.id!==S.editingText)drawAnnotation(c,a);});}else{c.scale(canvas.width/p.width,canvas.height/p.height);p.annotations.forEach(a=>{if(a.id!==S.editingText)drawAnnotation(c,a);});}if(gesture?.annotation)drawAnnotation(c,gesture.annotation);
+function drawInk(){const canvas=$('#ink-canvas'),p=page();if(!canvas||!p)return;const c=canvas.getContext('2d');c.clearRect(0,0,canvas.width,canvas.height);c.save();if(p.infinite&&S.viewport){const v=S.viewport;c.scale(v.scale,v.scale);c.translate(-v.x,-v.y);visibleAnnotations(p.annotations,v).forEach(a=>{if(a.id!==S.editingText&&a.type!=='rich')drawAnnotation(c,a);});}else{c.scale(canvas.width/p.width,canvas.height/p.height);p.annotations.forEach(a=>{if(a.id!==S.editingText&&a.type!=='rich')drawAnnotation(c,a);});}if(gesture?.annotation)drawAnnotation(c,gesture.annotation);
  if(S.selection.size){const b=selectionBounds();if(b){c.strokeStyle=S.accent.primary;c.fillStyle=S.accent.primary+'10';c.lineWidth=1.2/S.zoom;c.setLineDash([5/S.zoom,4/S.zoom]);c.fillRect(b.x-5,b.y-5,b.w+10,b.h+10);c.strokeRect(b.x-5,b.y-5,b.w+10,b.h+10);c.setLineDash([]);}}
  if(gesture?.mode==='select'){const b=selectionRect(gesture.start,gesture.last);c.strokeStyle=S.accent.primary;c.fillStyle=S.accent.primary+'16';c.lineWidth=1/S.zoom;c.setLineDash([5/S.zoom,4/S.zoom]);c.fillRect(b.x,b.y,b.w,b.h);c.strokeRect(b.x,b.y,b.w,b.h);c.setLineDash([]);}
  if(gesture?.mode==='erase'&&gesture.ring){const r=S.eraserSize/2/S.zoom;c.strokeStyle=S.accent.primary;c.fillStyle=S.accent.primary+'18';c.lineWidth=1.4/S.zoom;c.beginPath();c.arc(gesture.last.x,gesture.last.y,r,0,Math.PI*2);c.fill();c.stroke();}
- drawCommentPins(c,p);c.restore();refreshSelectionBar();
+ drawCommentPins(c,p);c.restore();refreshSelectionBar();syncRich();
 }
 function selectionRect(a,b){return{x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)};}
 function selectionBounds(){const bs=page().annotations.filter(a=>S.selection.has(a.id)).map(bounds);if(!bs.length)return null;const x=Math.min(...bs.map(b=>b.x)),y=Math.min(...bs.map(b=>b.y));return{x,y,w:Math.max(...bs.map(b=>b.x+b.w))-x,h:Math.max(...bs.map(b=>b.y+b.h))-y};}
@@ -325,12 +329,12 @@ function pointerDown(e){
  if(!$('#page-loading').hidden)return;e.preventDefault();const p=point(e),tool=S.tool;
  const pin=roots(page()).findLast(root=>{const a=commentPosition(page(),root);return Math.hypot(a.x-p.x,a.y-p.y)<13/S.zoom;});if(pin){S.commentsOpen=true;S.activeThread=pin.id;renderComments();return;}
  if(tool==='comment'){startThreadAt(p);return;}
- if(tool==='text'){const hit=textAt(p);startText(hit?{x:hit.x,y:hit.y}:p,hit);return;}
+ if(tool==='text'){const hit=textAt(p);startText(hit?{x:hit.x,y:hit.y}:p,hit,hit?{clientX:e.clientX,clientY:e.clientY}:null);return;}
  const c=$('#ink-canvas');c.setPointerCapture(e.pointerId);
  gesture={pointer:e.pointerId,start:p,last:p,before:pageSnapshot(),changed:false,tool,ring:e.pointerType!=='mouse'};
  if(tool==='hand'){gesture.mode='pan';gesture.scroll={x:$('#workspace').scrollLeft,y:$('#workspace').scrollTop,clientX:e.clientX,clientY:e.clientY};return;}
  if(tool==='eraser'){gesture.mode='erase';erase(p,p);}
- else if(tool==='lasso'){const b=selectionBounds();if(b&&inside(p,b,8))gesture.mode='move';else{S.selection.clear();gesture.mode='select';}}
+ else if(tool==='lasso'){const b=selectionBounds();if(b&&inside(p,b,8)){gesture.mode='move';if(e.ctrlKey||e.altKey){const copies=structuredClone(selectedItems()).map(a=>({...a,id:uid()}));page().annotations.push(...copies);S.selection=new Set(copies.map(a=>a.id));gesture.changed=true;}}else{S.selection.clear();gesture.mode='select';}}
  else{S.selection.clear();gesture.mode='draw';gesture.annotation=tool==='rect'?{id:uid(),type:'rect',x:p.x,y:p.y,w:0,h:0,color:S.color,width:S.width}:{id:uid(),type:tool==='marker'?'marker':'pen',color:tool==='marker'?S.marker:S.color,width:tool==='marker'?S.markerWidth:S.width,pressure:e.pointerType==='pen',points:[p]};}
  drawInk();
 }
@@ -350,26 +354,164 @@ function pointerUp(e){if(!gesture||gesture.pointer!==e.pointerId)return;const g=
  if(g.mode==='select'){const b=selectionRect(g.start,g.last);if(b.w<4&&b.h<4){const found=page().annotations.findLast(a=>hitAnnotation(a,g.last,7/S.zoom));if(found)S.selection.add(found.id);}else page().annotations.filter(a=>intersects(bounds(a),b)).forEach(a=>S.selection.add(a.id));}
  gesture=null;if(g.changed){if(page().infinite){const e=contentExtent(page());growExtent(page(),e.width,e.height);}remember(g.before);}if(page().infinite)paintInfinite(false);else drawInk();const c=$('#ink-canvas');if(c?.hasPointerCapture(e.pointerId))c.releasePointerCapture(e.pointerId);if(g.mode==='pan')requestAnimationFrame(checkActivePage);
 }
-function startText(p,edit=null){
- finishText();const t=document.createElement('textarea'),size=edit?edit.size:S.textSize,color=edit?edit.color:S.color,z=S.zoom;
- textarea={el:t,x:p.x,y:p.y,pageId:page().id,docId:S.active,color,size,editId:edit?.id||null};
- t.className='text-entry'+(edit?' editing':'');t.placeholder='输入文字，Ctrl Enter 完成';t.maxLength=10000;
- t.style.left=(p.x*z-10)+'px';t.style.top=(p.y*z-8-size*z*.225)+'px';t.style.fontSize=size*z+'px';t.style.color=color;
- t.style.width=(edit?Math.max(160,((edit.w||bounds(edit).w)+12)*z+24):Math.max(160,Math.min(260,(page().width-p.x)*z)))+'px';
- if(edit){t.value=edit.text;S.editingText=edit.id;drawInk();}
- $('#page-wrapper').append(t);if(edit)t.style.height=Math.max(64,t.scrollHeight+6)+'px';
- t.focus();if(edit)t.setSelectionRange(t.value.length,t.value.length);
- t.onblur=()=>finishText();t.onkeydown=e=>{e.stopPropagation();if(e.key==='Escape'){textarea=null;S.editingText=null;t.remove();drawInk();}if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();finishText();}};
+// ---------- Rich text boxes (OneNote-style containers) ----------
+// Boxes live as DOM over the canvas on the open page (crisp at every zoom, edited in place);
+// thumbnails, page pictures and PDF export draw a raster of the same HTML (richtext.mjs).
+const richEls=new Map();
+function richLayer(){return $('#rich-layer');}
+function clearRichLayer(){richEls.clear();richLayer()?.replaceChildren();}
+function placeRich(el,a){
+ const z=S.zoom;el.style.left=a.x*z+'px';el.style.top=a.y*z+'px';el.style.transform=`scale(${z})`;el.style.setProperty('--z',z);
+ const inner=el.querySelector('.rich');inner.style.width=a.w+'px';inner.style.fontSize=a.size+'px';inner.style.color=a.color;
 }
-function finishText(){if(!textarea)return;const v=textarea;textarea=null;S.editingText=null;const value=v.el.value.trim();const width=(v.el.clientWidth-16)/S.zoom;v.el.remove();
- if(v.docId!==S.active||v.pageId!==page()?.id){drawInk();return;}
- const existing=v.editId?page().annotations.find(a=>a.id===v.editId):null;
- if(!value){if(existing){const before=pageSnapshot();page().annotations=page().annotations.filter(a=>a!==existing);remember(before);}drawInk();return;}
- const c=document.createElement('canvas').getContext('2d');c.font=`${v.size}px "Segoe UI","Microsoft YaHei",sans-serif`;const lines=[];for(const paragraph of value.split('\n')){let line='';for(const ch of paragraph){if(line&&c.measureText(line+ch).width>width){lines.push(line);line='';}line+=ch;}lines.push(line);}
- const text=lines.join('\n'),w=Math.max(...lines.map(x=>c.measureText(x).width)),h=lines.length*v.size*1.45;
- if(existing){if(existing.text===text){drawInk();return;}const before=pageSnapshot();Object.assign(existing,{text,w,h});delete existing.dateISO;remember(before);drawInk();return;}
- const before=pageSnapshot();page().annotations.push({id:uid(),type:'text',text,x:v.x,y:v.y,color:v.color,size:v.size,w,h});remember(before);drawInk();
+function richBox(a){
+ const el=document.createElement('div');el.className='rich-box';el.dataset.id=a.id;
+ el.innerHTML='<div class="rich-grip" title="拖动移动文本框" aria-hidden="true"></div><div class="rich"></div><div class="rich-resize" title="拖动调整宽度" aria-hidden="true"></div>';
+ return el;
 }
+// Keep the DOM boxes in step with the page's rich annotations (cheap when nothing changed).
+function syncRich(){
+ const layer=richLayer(),p=page();if(!layer||!p)return;const seen=new Set();let measured=false;
+ for(const a of p.annotations){
+  if(a.type!=='rich')continue;seen.add(a.id);let el=richEls.get(a.id);
+  if(!el){el=richBox(a);richEls.set(a.id,el);layer.append(el);}
+  if(textarea?.id===a.id)continue;
+  const inner=el.querySelector('.rich');if(el._html!==a.html){renderInto(inner,a.html);el._html=a.html;}
+  placeRich(el,a);el.classList.toggle('selected',S.selection.has(a.id));
+  const h=Math.ceil(inner.offsetHeight);if(h&&Math.abs((a.h||0)-h)>1){a.h=h;measured=true;}
+ }
+ for(const [id,el] of richEls)if(!seen.has(id)&&textarea?.id!==id){el.remove();richEls.delete(id);}
+ if(measured)save(false);
+}
+function textAt(p){return page().annotations.findLast(a=>(a.type==='text'||a.type==='rich')&&a.id!==S.editingText&&inside(p,bounds(a),4/S.zoom));}
+function editTextAt(e){if(!page()||textarea||!['lasso','hand','text'].includes(S.tool))return;const p=point(e),hit=textAt(p);if(hit){e.preventDefault();S.selection.clear();startText({x:hit.x,y:hit.y},hit,{clientX:e.clientX,clientY:e.clientY});}}
+function defaultRichWidth(x){const p=page();const room=p.infinite?560:p.width-x-30;return Math.round(clamp(room,140,560));}
+function caretAt(clientX,clientY){const r=document.caretRangeFromPoint?.(clientX,clientY);if(r){const s=getSelection();s.removeAllRanges();s.addRange(r);return true;}return false;}
+function caretToEnd(el){const r=document.createRange();r.selectNodeContents(el);r.collapse(false);const s=getSelection();s.removeAllRanges();s.addRange(r);}
+function startText(p,edit=null,at=null){
+ finishText();if(!page())return;
+ const src=edit?(edit.type==='rich'?edit:{id:edit.id,type:'rich',x:edit.x,y:edit.y,w:Math.max(140,Math.ceil(bounds(edit).w)+16),size:edit.size,color:edit.color,html:plainToHtml(edit.text)}):null;
+ const a=src?{...src}:{id:uid(),type:'rich',x:p.x,y:p.y,w:defaultRichWidth(p.x),size:S.textSize,color:S.color,html:''};
+ textarea={id:a.id,draft:a,isNew:!edit,before:pageSnapshot(),pageId:page().id,docId:S.active};S.editingText=a.id;
+ let el=richEls.get(a.id);if(!el){el=richBox(a);richEls.set(a.id,el);richLayer().append(el);}
+ const inner=el.querySelector('.rich');renderInto(inner,a.html||'<p><br></p>');el._html=null;placeRich(el,a);document.execCommand('defaultParagraphSeparator',false,'p');
+ el.classList.add('editing');inner.contentEditable='true';inner.spellcheck=false;inner.dataset.placeholder='输入文字；可粘贴或拖入带格式的内容、Markdown 和公式';
+ if(edit?.type==='text')drawInk();
+ inner.focus({preventScroll:true});if(!(at&&caretAt(at.clientX,at.clientY)))caretToEnd(inner);
+ showRichToolbar(el);bindRichEditor(el,inner);
+ document.addEventListener('pointerdown',richOutside,true);
+}
+function richOutside(e){if(!textarea)return;const el=richEls.get(textarea.id);if(el?.contains(e.target)||e.target.closest?.('.rich-toolbar,#modal,.rich-colors'))return;finishText();}
+function finishText(){
+ if(!textarea)return;const s=textarea;textarea=null;S.editingText=null;document.removeEventListener('pointerdown',richOutside,true);$('.rich-toolbar')?.remove();$('.rich-colors')?.remove();
+ const el=richEls.get(s.id),inner=el?.querySelector('.rich');
+ if(el){el.classList.remove('editing');inner.removeAttribute('contenteditable');}
+ if(!inner||s.docId!==S.active||s.pageId!==page()?.id){if(el){el.remove();richEls.delete(s.id);}drawInk();return;}
+ autoMath(inner);const html=storageFrom(inner),plain=richPlainText(html),list=page().annotations,i=list.findIndex(x=>x.id===s.id);
+ if(!plain.trim()&&!/class="math/.test(html)){if(i>=0){list.splice(i,1);remember(s.before);}el.remove();richEls.delete(s.id);drawInk();return;}
+ const a={id:s.id,type:'rich',x:s.draft.x,y:s.draft.y,w:s.draft.w,size:s.draft.size,color:s.draft.color,html,plain:plain.slice(0,20000),h:Math.max(1,Math.ceil(inner.offsetHeight))};
+ const old=i>=0?list[i]:null;el._html=null;
+ if(old&&old.type==='rich'&&old.html===a.html&&old.x===a.x&&old.y===a.y&&old.w===a.w){drawInk();return;}
+ if(old)list[i]=a;else list.push(a);remember(s.before);drawInk();
+}
+// "$…$", "\(…\)", "$$…$$" typed as text become formulas when the box is closed.
+function autoMath(root){
+ const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement.closest('code,pre,.math')?NodeFilter.FILTER_REJECT:/\$|\\\(|\\\[/.test(n.data)?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_SKIP});
+ const nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);
+ for(const n of nodes){const {text,math}=extractMath(n.data);if(!math.length)continue;const frag=document.createDocumentFragment();
+  for(const part of text.split(/(\d+)/)){const m=part.match(/^(\d+)$/);if(!m){if(part)frag.append(part);continue;}const s=document.createElement('span');s.className='math'+(math[m[1]].display?' math-display':'');s.dataset.tex=math[m[1]].tex;frag.append(s);}
+  n.replaceWith(frag);}
+ renderMath(root);
+}
+function insertRichHtml(inner,html){
+ inner.focus({preventScroll:true});document.execCommand('insertHTML',false,html);renderMath(inner);
+}
+function bindRichEditor(el,inner){
+ inner.onkeydown=e=>{e.stopPropagation();if(e.key==='Escape'||e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();finishText();return;}
+  if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&['b','i','u'].includes(e.key.toLowerCase())){e.preventDefault();document.execCommand({b:'bold',i:'italic',u:'underline'}[e.key.toLowerCase()]);}};
+ inner.oninput=e=>{markdownShortcut(inner,e);positionRichToolbar(el);};
+ inner.onpaste=e=>{e.preventDefault();const dt=e.clipboardData,html=dt.getData('text/html'),text=dt.getData('text/plain');insertRichHtml(inner,html&&html.trim()?sanitizeHtml(html):textToHtml(text));};
+ inner.ondrop=e=>{e.preventDefault();e.stopPropagation();const drop=captureDrop(e.dataTransfer);caretAt(e.clientX,e.clientY);const range=getSelection().rangeCount?getSelection().getRangeAt(0).cloneRange():null;run(async()=>{const html=await richFromDrop(drop);if(!html||!textarea)return;inner.focus({preventScroll:true});if(range){const s=getSelection();s.removeAllRanges();s.addRange(range);}insertRichHtml(inner,html);});};
+ inner.ondragover=e=>{e.preventDefault();e.stopPropagation();};
+ inner.onclick=e=>{const m=e.target.closest('.math[data-tex]');if(m)run(()=>editMath(inner,m));};
+ const z=()=>S.zoom;
+ el.querySelector('.rich-grip').onpointerdown=e=>{e.preventDefault();e.stopPropagation();const g=e.currentTarget;g.setPointerCapture(e.pointerId);const a=textarea.draft,sx=e.clientX,sy=e.clientY,ox=a.x,oy=a.y;
+  g.onpointermove=m=>{a.x=Math.max(page().infinite?0:-a.w+20,ox+(m.clientX-sx)/z());a.y=Math.max(page().infinite?0:-20,oy+(m.clientY-sy)/z());placeRich(el,a);positionRichToolbar(el);};
+  g.onpointerup=g.onpointercancel=()=>{g.onpointermove=g.onpointerup=g.onpointercancel=null;inner.focus({preventScroll:true});};};
+ el.querySelector('.rich-resize').onpointerdown=e=>{e.preventDefault();e.stopPropagation();const g=e.currentTarget;g.setPointerCapture(e.pointerId);const a=textarea.draft,sx=e.clientX,ow=a.w;
+  g.onpointermove=m=>{a.w=Math.round(clamp(ow+(m.clientX-sx)/z(),60,4000));placeRich(el,a);positionRichToolbar(el);};
+  g.onpointerup=g.onpointercancel=()=>{g.onpointermove=g.onpointerup=g.onpointercancel=null;inner.focus({preventScroll:true});};};
+}
+// Typing "# ", "## ", "- ", "1. ", "> " or "```" at the start of a line turns it into that block, as in OneNote/Notion.
+function markdownShortcut(inner,e){
+ if(e.inputType!=='insertText'||e.data!==' ')return;const sel=getSelection();if(!sel.rangeCount)return;const node=sel.anchorNode;if(node?.nodeType!==3)return;
+ const block=node.parentElement.closest('p,div,h1,h2,h3');if(!block||block===inner||!inner.contains(block)||block.closest('pre,li,blockquote'))return;
+ if(node!==firstText(block))return;const mark=node.data.slice(0,sel.anchorOffset).replace(/ /g,' ').trimEnd();
+ const kind={'#':'h1','##':'h2','###':'h3','>':'blockquote','-':'ul','*':'ul','•':'ul','1.':'ol','1)':'ol'}[mark];if(!kind)return;
+ node.data=node.data.slice(sel.anchorOffset);
+ const target=document.createElement(kind==='ul'||kind==='ol'?'li':kind);while(block.firstChild)target.append(block.firstChild);if(!target.textContent)target.innerHTML='<br>';
+ if(kind==='ul'||kind==='ol'){const prev=block.previousElementSibling;let list=prev?.tagName===kind.toUpperCase()?prev:null;if(!list){list=document.createElement(kind);block.before(list);}list.append(target);block.remove();}
+ else block.replaceWith(target);
+ const r=document.createRange(),first=firstText(target);if(first)r.setStart(first,0);else r.setStart(target,0);r.collapse(true);sel.removeAllRanges();sel.addRange(r);
+}
+function firstText(el){const w=document.createTreeWalker(el,NodeFilter.SHOW_TEXT);return w.nextNode();}
+const RICH_COLORS=['#1f1f1f','#1a73e8','#d93025','#188038','#9334e6','#e37400'];
+function showRichToolbar(el){
+ $('.rich-toolbar')?.remove();const bar=document.createElement('div');bar.className='rich-toolbar';bar.setAttribute('role','toolbar');bar.setAttribute('aria-label','文字格式');
+ const b=(cmd,label,title,extra='')=>`<button type="button" data-rich="${cmd}" title="${title}" aria-label="${title}" ${extra}>${label}</button>`;
+ bar.innerHTML=b('p','正文','正文')+b('h1','H1','标题 1')+b('h2','H2','标题 2')+b('h3','H3','标题 3')+'<span class="rt-sep"></span>'+
+  b('bold','<b>B</b>','加粗 (Ctrl B)')+b('italic','<i>I</i>','斜体 (Ctrl I)')+b('underline','<u>U</u>','下划线 (Ctrl U)')+b('strikeThrough','<s>S</s>','删除线')+b('color','<span class="rt-color"></span>','文字颜色')+b('mark','<span class="rt-mark">ab</span>','高亮')+'<span class="rt-sep"></span>'+
+  b('ul',icon('list'),'项目符号列表')+b('ol','1.','编号列表')+b('quote','❝','引用')+b('code','&lt;/&gt;','代码')+b('math','∑','插入公式（LaTeX）')+'<span class="rt-sep"></span>'+b('clear','✕','清除格式');
+ $('#page-wrapper').append(bar);
+ bar.onpointerdown=e=>e.preventDefault();
+ bar.onclick=e=>{const btn=e.target.closest('[data-rich]');if(!btn||!textarea)return;const inner=richEls.get(textarea.id)?.querySelector('.rich');if(!inner)return;inner.focus({preventScroll:true});richCommand(btn.dataset.rich,inner,btn);positionRichToolbar(el);};
+ positionRichToolbar(el);
+}
+function positionRichToolbar(el){const bar=$('.rich-toolbar');if(!bar||!textarea)return;const a=textarea.draft,z=S.zoom,h=el.querySelector('.rich').offsetHeight*z,top=a.y*z-64;bar.style.left=Math.max(0,a.x*z)+'px';bar.style.top=(top<4?a.y*z+h+14:top)+'px';}
+function richCommand(cmd,inner,btn){
+ const exec=(c,v)=>document.execCommand(c,false,v);exec('styleWithCSS',false);
+ if(['bold','italic','underline','strikeThrough'].includes(cmd))return exec(cmd);
+ if(cmd==='p'||cmd==='h1'||cmd==='h2'||cmd==='h3')return exec('formatBlock','<'+cmd+'>');
+ if(cmd==='quote')return exec('formatBlock','<blockquote>');
+ if(cmd==='ul')return exec('insertUnorderedList');if(cmd==='ol')return exec('insertOrderedList');
+ if(cmd==='clear'){exec('removeFormat');return exec('formatBlock','<p>');}
+ if(cmd==='code'){const t=getSelection().toString();if(t.includes('\n'))return exec('insertHTML','<pre><code>'+E(t)+'</code></pre>');return exec('insertHTML','<code>'+E(t||'代码')+'</code>&#8203;');}
+ if(cmd==='mark'){exec('styleWithCSS',true);exec('hiliteColor','#ffeb8a');return exec('styleWithCSS',false);}
+ if(cmd==='color'){
+  $('.rich-colors')?.remove();const pop=document.createElement('div');pop.className='rich-colors';pop.innerHTML=RICH_COLORS.map(c=>`<button type="button" style="--swatch:${c}" data-c="${c}" title="${c}" aria-label="颜色 ${c}"></button>`).join('');
+  pop.onpointerdown=e=>e.preventDefault();pop.onclick=e=>{const c=e.target.closest('[data-c]')?.dataset.c;if(!c)return;inner.focus({preventScroll:true});exec('styleWithCSS',true);exec('foreColor',c);exec('styleWithCSS',false);pop.remove();};
+  const r=btn.getBoundingClientRect(),w=$('#page-wrapper').getBoundingClientRect();pop.style.left=(r.left-w.left)+'px';pop.style.top=(r.bottom-w.top+6)+'px';$('#page-wrapper').append(pop);return;
+ }
+ if(cmd==='math')return run(()=>editMath(inner,null));
+}
+async function editMath(inner,node){
+ const sel=getSelection(),range=sel.rangeCount?sel.getRangeAt(0).cloneRange():null,old=node?.dataset.tex||'';
+ const tex=await new Promise(resolve=>{dialog(node?'编辑公式':'插入公式',`<label class="field-label" for="tex">LaTeX</label><textarea class="field-input tex-input" id="tex" name="tex" rows="3" placeholder="例如 \\frac{a}{b}、x^2+y^2=r^2、\\int_0^1 f(x)\\,dx" spellcheck="false">${E(old)}</textarea><label class="switch setting-switch"><input type="checkbox" name="display" role="switch" ${node?.classList.contains('math-display')?'checked':''}><span class="switch-track" aria-hidden="true"></span><span class="switch-label"><strong>单独成行</strong><small>大号居中显示，适合较长的公式</small></span></label><div class="tex-preview rich" id="tex-preview"></div>${actions(node?'保存':'插入')}`,{submit:f=>{closeModal();resolve({tex:String(f.get('tex')||'').trim(),display:f.get('display')==='on'});}});
+  modal.addEventListener('close',function c(){if(modal.open)return;modal.removeEventListener('close',c);resolve(null);});
+  const input=$('#tex'),preview=$('#tex-preview'),show=()=>{preview.innerHTML=input.value.trim()?`<span class="math${modal.querySelector('[name=display]').checked?' math-display':''}" data-tex="${E(input.value.trim())}"></span>`:'<span class="field-hint">这里显示预览</span>';renderMath(preview);};
+  input.oninput=show;modal.querySelector('[name=display]').onchange=show;show();});
+ if(!textarea)return;inner.focus({preventScroll:true});
+ if(range){const s=getSelection();s.removeAllRanges();s.addRange(range);}
+ if(!tex)return;
+ if(!tex.tex){node?.remove();return;}
+ const html=`<span class="math${tex.display?' math-display':''}" data-tex="${E(tex.tex)}"></span>`;
+ if(node){const t=document.createElement('template');t.innerHTML=html;node.replaceWith(t.content.firstChild);renderMath(inner);}else insertRichHtml(inner,html+'&#8203;');
+}
+// Read everything a drop carries while the event is still running (DataTransfer is emptied afterwards).
+function captureDrop(dt){return {files:[...(dt.files||[])],html:dt.getData('text/html'),text:dt.getData('text/plain')};}
+async function richFromDrop(drop){
+ const files=drop.files.filter(f=>/\.(md|markdown|txt)$/i.test(f.name)&&f.size<20*1024*1024);
+ if(files.length){const parts=[];for(const f of files)parts.push(/\.txt$/i.test(f.name)?textToHtml(await f.text()):markdownToHtml(await f.text()));return parts.join('');}
+ if(drop.html&&drop.html.trim())return sanitizeHtml(drop.html);if(drop.text&&drop.text.trim())return textToHtml(drop.text);return '';
+}
+// Paste or drop formatted content straight onto the page (not into a box): a new box is made for it.
+function addRichBox(html,at){
+ if(!page()||!html)return null;const p=page(),v=p.infinite?S.viewport:null;
+ const x=Math.max(0,at?at.x:(v?.x||0)+48),y=Math.max(0,at?at.y:Math.max((v?.y||0)+48,pageHeader(p).bottom+12));
+ const a={id:uid(),type:'rich',x,y,w:defaultRichWidth(x),size:S.textSize,color:S.color,html};a.plain=richPlainText(html).slice(0,20000);a.h=measureRich(a);
+ const before=pageSnapshot();p.annotations.push(a);S.selection=new Set([a.id]);if(S.tool!=='lasso'){S.tool='lasso';refreshTools();}remember(before);redrawPage();return a;
+}
+
 async function goPage(i,{at='top'}={}){finishText();if(!doc()||i<0||i>=doc().pages.length)return;if(i!==S.page){S.commentDraft=null;S.activeThread=null;}S.page=i;await showPage({at});const active=document.querySelector('.page-thumb.active');active?.scrollIntoView({block:'nearest'});}
 async function changeZoom(delta){finishText();S.zoom=clamp(Math.round((S.zoom+delta)*10)/10,.3,3);await showPage({resetScroll:false});}
 async function fitIfOverflow(){const p=page(),w=$('#workspace');if(p&&!p.infinite&&!p.reading&&w&&p.width*S.zoom>w.clientWidth-65)await fit();}
@@ -385,40 +527,68 @@ function editorMenu(){const p=page(),n=doc().pages.length,canvas=titleEditable(p
 }
 async function pageMutation(a){const before=pageSnapshot();if(a==='bookmark')page().bookmark=!page().bookmark;if(a==='clear')page().annotations=[];if(a==='duplicate'){const clone=structuredClone(page());clone.id=uid();clone.annotations.forEach(x=>x.id=uid());doc().pages.splice(S.page+1,0,clone);S.page++;}if(a==='delete'&&doc().pages.length>1){doc().pages.splice(S.page,1);S.page=clamp(S.page,0,doc().pages.length-1);}if((a==='up'&&S.page>0)||(a==='down'&&S.page<doc().pages.length-1)){const j=S.page+(a==='up'?-1:1),ps=doc().pages;[ps[S.page],ps[j]]=[ps[j],ps[S.page]];S.page=j;}remember(before);renderThumbList();await showPage();await renderThumbnails();}
 
-async function download(bytes,name,mime){
- if(EMBED&&host()?.download)return host().download(bytes,name,mime);
- if(window.desktop?.saveFile){const result=await window.desktop.saveFile({name,bytes:bytes instanceof Uint8Array?bytes:new Uint8Array(bytes),mime});if(result?.error)throw new Error(result.error);return result?.saved;}
- const url=URL.createObjectURL(new Blob([bytes],{type:mime})),a=document.createElement('a');a.href=url;a.download=name;a.hidden=true;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);return true;
+async function download(data,name,mime){
+ if(EMBED&&host()?.download)return host().download(data,name,mime);
+ const blob=data instanceof Blob?data:new Blob([data],{type:mime});
+ if(window.desktop?.saveBegin){
+  const r=await window.desktop.saveBegin({name,size:blob.size});if(r?.error)throw new Error(r.error);if(!r?.token)return false;
+  let ok=false;try{const step=16*1024*1024;for(let o=0;o<blob.size||o===0;o+=step){const res=await window.desktop.saveChunk(r.token,new Uint8Array(await blob.slice(o,o+step).arrayBuffer()));if(res?.error)throw new Error(res.error);if(!blob.size)break;}ok=true;}
+  finally{const end=await window.desktop.saveEnd(r.token,ok);if(ok&&end?.error)throw new Error(end.error);}
+  return true;
+ }
+ const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.hidden=true;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);return true;
 }
 function filename(s){return s.replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').replace(/[. ]+$/,'').slice(0,100)||'InkNote';}
 function exportDialog(){finishText();const d=doc();dialog('导出',`<div class="menu-choices"><button type="button" data-export="pdf">${icon('file')}<span>导出 PDF<small>${d.kind==='pdf'?'保留原文和可检索文字，批注合并为图层':'无限画布按内容分成 A4 页导出'}</small></span></button><button type="button" data-export="backup">${icon('book')}<span>导出可编辑备份 · .inknote<small>包含原始文档、可编辑笔迹、图片与页面设置</small></span></button></div><p class="help-note">想继续修改笔迹，请保留 .inknote 备份；PDF 适合阅读与分享。</p>`);modal.querySelectorAll('[data-export]').forEach(b=>b.onclick=()=>run(async()=>{const type=b.dataset.export;closeModal();if(type==='backup')return exportBackup(doc());await doExport();}));}
-async function doExport(){finishText();await flush();const d=doc();const btn=$('[data-action="export"]');if(btn)btn.disabled=true;toast('正在生成 PDF…');try{const bytes=await exportPdf(structuredClone(d));if(await download(bytes,filename(d.title)+'-批注.pdf','application/pdf'))toast('PDF 已导出');}finally{if(btn?.isConnected)btn.disabled=false;}}
+async function doExport(){finishText();await flush();const d=doc();const btn=$('[data-action="export"]');if(btn)btn.disabled=true;toast('正在生成 PDF…');try{const bytes=await exportPdf(structuredClone(d),()=>{},{pdf:S.pdf,prepareRich});if(await download(bytes,filename(d.title)+'-批注.pdf','application/pdf'))toast('PDF 已导出');}finally{if(btn?.isConnected)btn.disabled=false;}}
 function toBase64(bytes){let s='';for(let i=0;i<bytes.length;i+=32768)s+=String.fromCharCode(...bytes.subarray(i,i+32768));return btoa(s);}
-async function exportBackup(d){finishText();await flush();const binary=await store.binary(d.id);const payload={format:'inknote',version:1,document:structuredClone(d),pdf:d.kind==='pdf'&&binary?toBase64(new Uint8Array(binary)):null,source:d.kind==='ebook'&&binary?{format:d.format,base64:toBase64(new Uint8Array(binary))}:null};const bytes=new TextEncoder().encode(JSON.stringify(payload));if(await download(bytes,filename(d.title)+'.inknote','application/json'))toast('可编辑备份已导出');}
+const BIG_BACKUP=48*1024*1024;
+// v1: JSON with the original base64-encoded (older versions read it). v2 (originals over 48 MB): a stored ZIP
+// holding inknote.json and source.bin, so 1 GB files never pass through a giant string.
+async function backupBlob(d){
+ finishText();await flush();const binary=await store.binary(d.id),copy=structuredClone(d);
+ if(binary&&binary.byteLength>BIG_BACKUP)return writeZip([{name:'inknote.json',data:JSON.stringify({format:'inknote',version:2,document:copy,source:{entry:'source.bin',kind:d.kind,format:d.format||null,bytes:binary.byteLength}})},{name:'source.bin',data:new Uint8Array(binary)}]);
+ const payload={format:'inknote',version:1,document:copy,pdf:d.kind==='pdf'&&binary?toBase64(new Uint8Array(binary)):null,source:d.kind==='ebook'&&binary?{format:d.format,base64:toBase64(new Uint8Array(binary))}:null};
+ return new Blob([JSON.stringify(payload)],{type:'application/json'});
+}
+async function exportBackup(d){const blob=await backupBlob(d);if(await download(blob,filename(d.title)+'.inknote','application/json'))toast('可编辑备份已导出');}
+async function readBackup(file){
+ if(await isZip(file)){
+  const z=await readZip(file),meta=z.get('inknote.json');if(!meta||meta.size>256*1024*1024)throw new Error('不是有效的 InkNote 备份文件。');
+  const data=JSON.parse(new TextDecoder().decode(await readEntry(meta)));if(data?.version!==2)throw new Error('不是有效的 InkNote 备份文件。');
+  const src=z.get('source.bin');return {data,source:src?()=>readEntry(src):null};
+ }
+ if(file.size>512*1024*1024)throw new Error('备份文件过大，无法读取。');
+ const data=JSON.parse(await file.text());if(data?.version!==1)throw new Error('不是有效的 InkNote 备份文件。');
+ const b64=typeof data.pdf==='string'?data.pdf:typeof data.source?.base64==='string'?data.source.base64:null;
+ return {data,source:b64?async()=>Uint8Array.from(atob(b64),c=>c.charCodeAt(0)):null};
+}
 async function importFiles(files){
- if(importing){toast('正在导入，请稍候');return;}importing=true;let last;try{finishText();await flush();for(const f of files){try{if(f.size>200*1024*1024)throw new Error('文件超过 200 MB，请先拆分再导入。');if(f.name.toLowerCase().endsWith('.inknote'))last=await importBackup(f);else if(f.name.toLowerCase().endsWith('.pdf')||f.type==='application/pdf')last=await importPdf(f);else if([...DIRECT_BOOK_FORMATS,...CONVERT_BOOK_FORMATS].includes(f.name.split('.').at(-1).toLowerCase()))last=await importEbook(f);else throw new Error('请选择 PDF、电子书、TXT 或 .inknote 备份。');}catch(e){failure(new Error(`${f.name}：${e.message}`));}}if(last){await openDoc(last);toast('导入完成，可以开始批注了');}}finally{importing=false;$('#file-input').value='';}}
+ if(importing){toast('正在导入，请稍候');return;}importing=true;let last;try{finishText();await flush();for(const f of files){try{if(f.size>1024*1024*1024)throw new Error('文件超过 1 GB，请先拆分再导入。');if(f.name.toLowerCase().endsWith('.inknote'))last=await importBackup(f);else if(f.name.toLowerCase().endsWith('.pdf')||f.type==='application/pdf')last=await importPdf(f);else if([...DIRECT_BOOK_FORMATS,...CONVERT_BOOK_FORMATS].includes(f.name.split('.').at(-1).toLowerCase()))last=await importEbook(f);else throw new Error('请选择 PDF、电子书、TXT 或 .inknote 备份。');}catch(e){failure(new Error(`${f.name}：${e.message}`));}}if(last){await openDoc(last);toast('导入完成，可以开始批注了');}}finally{importing=false;$('#file-input').value='';}}
 async function importPdf(file){
  toast('正在读取 '+file.name);const bytes=new Uint8Array(await file.arrayBuffer());const {pdf}=await readPdf(bytes,passwordPrompt);if(pdf.numPages>2000){await pdf.destroy();throw new Error('第一版最多支持 2000 页文档，请先拆分。');}
  const d={id:uid(),title:file.name.replace(/\.pdf$/i,''),kind:'pdf',color:'sand',folder:S.view.startsWith('folder:')?S.view.slice(7):'',createdAt:Date.now(),updatedAt:Date.now(),pages:[],lastPage:0};
  for(let i=0;i<pdf.numPages;i++){const p=await pdf.getPage(i+1),v=p.getViewport({scale:1});d.pages.push({id:uid(),sourceIndex:i,width:v.width,height:v.height,template:'blank',annotations:[],bookmark:false});}
  try{await store.putBinary(d.id,bytes);await store.save(d);}catch(e){await store.remove(d.id);await pdf.destroy();throw e;}S.docs.push(d);cachePdf(d.id,pdf);return d.id;
 }
-async function importBackup(file){
- const data=JSON.parse(await file.text());if(data.format!=='inknote'||data.version!==1||!data.document||!Array.isArray(data.document.pages))throw new Error('不是有效的 InkNote 备份文件。');
+async function importBackup(file,opts={}){
+ const sync=!!opts.keepId,{data,source}=opts.data?opts:await readBackup(file);if(data.format!=='inknote'||!data.document||!Array.isArray(data.document.pages))throw new Error('不是有效的 InkNote 备份文件。');
  const raw=data.document;if(raw.kind==='discussion'&&raw.pages.length!==1)throw new Error('帖子备份必须是一页一个帖子。');if(typeof raw.title!=='string'||raw.pages.length<1||raw.pages.length>2000)throw new Error('备份内容无效。');
  const numeric=(v,min,max)=>Number.isFinite(v)&&v>=min&&v<=max;
  const color=v=>typeof v==='string'&&/^#[\da-f]{6}$/i.test(v);
  let count=0;
  const pages=raw.pages.map(p=>{if(!numeric(p.width,1,p.infinite?1e12:20000)||!numeric(p.height,1,p.infinite?1e12:20000)||!Array.isArray(p.annotations)||p.annotations.length>50000)throw new Error('页面数据无效。');if(p.sourceIndex!==null&&(!Number.isInteger(p.sourceIndex)||p.sourceIndex<0))throw new Error('PDF 页面索引无效。');
- const annotations=p.annotations.map(a=>{if(!['pen','marker','text','rect'].includes(a.type)||!color(a.color))throw new Error('批注数据无效。');if(a.type==='text'){if(typeof a.text!=='string'||a.text.length>10000||![a.x,a.y].every(n=>numeric(n,p.infinite?0:-100000,p.infinite?1e12:100000))||!numeric(a.size,1,200))throw new Error('文字批注无效。');return {id:uid(),type:'text',color:a.color,text:a.text,dateISO:typeof a.dateISO==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(a.dateISO)?a.dateISO:undefined,x:a.x,y:a.y,size:a.size,w:numeric(a.w,0,100000)?a.w:undefined,h:numeric(a.h,0,100000)?a.h:undefined};}
+ const annotations=p.annotations.map(a=>{if(!['pen','marker','text','rect','rich'].includes(a.type)||!color(a.color))throw new Error('批注数据无效。');if(a.type==='rich'){if(typeof a.html!=='string'||a.html.length>400000||![a.x,a.y].every(n=>numeric(n,p.infinite?0:-100000,p.infinite?1e12:100000))||!numeric(a.w,20,5000)||!numeric(a.size,1,200))throw new Error('文本框数据无效。');const html=sanitizeHtml(a.html);return {id:uid(),type:'rich',color:a.color,x:a.x,y:a.y,w:a.w,h:numeric(a.h,0,1e6)?a.h:undefined,size:a.size,html,plain:richPlainText(html).slice(0,20000)};}if(a.type==='text'){if(typeof a.text!=='string'||a.text.length>10000||![a.x,a.y].every(n=>numeric(n,p.infinite?0:-100000,p.infinite?1e12:100000))||!numeric(a.size,1,200))throw new Error('文字批注无效。');return {id:uid(),type:'text',color:a.color,text:a.text,dateISO:typeof a.dateISO==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(a.dateISO)?a.dateISO:undefined,x:a.x,y:a.y,size:a.size,w:numeric(a.w,0,100000)?a.w:undefined,h:numeric(a.h,0,100000)?a.h:undefined};}
  if(!numeric(a.width,.1,100))throw new Error('笔迹宽度无效。');if(a.type==='rect'){if(![a.x,a.y].every(n=>numeric(n,p.infinite?0:-100000,p.infinite?1e12:100000))||![a.w,a.h].every(n=>numeric(n,p.infinite?-1e12:-100000,p.infinite?1e12:100000)))throw new Error('形状数据无效。');return {id:uid(),type:'rect',color:a.color,width:a.width,x:a.x,y:a.y,w:a.w,h:a.h};}
  if(!Array.isArray(a.points)||!a.points.length||(count+=a.points.length)>2000000||!a.points.every(q=>[q.x,q.y].every(n=>numeric(n,p.infinite?0:-100000,p.infinite?1e12:100000))&&numeric(q.p,0,1)))throw new Error('笔迹数据无效或过大。');return {id:uid(),type:a.type,color:a.color,width:a.width,pressure:!!a.pressure,points:a.points.map(q=>({x:q.x,y:q.y,p:q.p}))};});
  if(p.infinite&&p.sourceIndex!==null)throw new Error('无限画布不能引用 PDF 页面');
  return {id:uid(),infinite:!!p.infinite,reading:p.reading?validateReading(p.reading):undefined,timeCanvas:!!p.timeCanvas,nextFloorNumber:Number.isSafeInteger(p.nextFloorNumber)&&p.nextFloorNumber>0&&p.nextFloorNumber<1e9?p.nextFloorNumber:undefined,canvasCreatedAt:p.timeCanvas&&numeric(p.canvasCreatedAt,0,8e15)?p.canvasCreatedAt:Date.now(),comments:validateComments(p.comments,new Map(p.annotations.map((a,i)=>[a.id,annotations[i].id]))),sourceIndex:p.sourceIndex,width:p.width,height:p.height,template:['blank','ruled','grid','dot','guide'].includes(p.template)?p.template:'blank',guide:numeric(p.guide,0,2)?p.guide:0,title:typeof p.title==='string'?p.title.slice(0,120):undefined,spacing:SPACINGS.includes(p.spacing)?p.spacing:undefined,margin:p.margin===true||undefined,annotations,bookmark:!!p.bookmark};});
- const d={id:uid(),title:raw.title.slice(0,160),kind:pages.some(p=>p.sourceIndex!==null)?'pdf':pages.some(p=>p.reading)?'ebook':raw.kind==='discussion'?'discussion':'notebook',format:typeof raw.format==='string'?raw.format.slice(0,16):undefined,canvasType:raw.kind==='discussion'?'discussion':pages.some(p=>p.timeCanvas)?'time':'plain',color:['olive','sand','blue','pink'].includes(raw.color)?raw.color:'olive',folder:S.folders.includes(raw.folder)?raw.folder:'',favorite:!!raw.favorite,createdAt:raw.kind==='discussion'&&numeric(raw.createdAt,0,8e15)?raw.createdAt:Date.now(),updatedAt:Date.now(),lastPage:0,pages};
+ if(sync&&typeof raw.folder==='string'&&raw.folder&&raw.folder.length<=40&&!S.folders.includes(raw.folder)){S.folders.push(raw.folder);await store.setSetting('folders',S.folders);}
+ const d={id:sync&&typeof raw.id==='string'&&/^[\w-]{8,64}$/.test(raw.id)?raw.id:uid(),title:raw.title.slice(0,160),kind:pages.some(p=>p.sourceIndex!==null)?'pdf':pages.some(p=>p.reading)?'ebook':raw.kind==='discussion'?'discussion':'notebook',format:typeof raw.format==='string'?raw.format.slice(0,16):undefined,canvasType:raw.kind==='discussion'?'discussion':pages.some(p=>p.timeCanvas)?'time':'plain',color:['olive','sand','blue','pink'].includes(raw.color)?raw.color:'olive',folder:S.folders.includes(raw.folder)?raw.folder:'',favorite:!!raw.favorite,createdAt:(sync||raw.kind==='discussion')&&numeric(raw.createdAt,0,8e15)?raw.createdAt:Date.now(),updatedAt:sync&&numeric(raw.updatedAt,0,8e15)?raw.updatedAt:Date.now(),lastPage:0,pages};
  if(d.kind==='discussion')ensureDiscussionFloors(d.pages[0]);
- let bytes,pdf;if(pages.some(p=>p.sourceIndex!==null)){if(typeof data.pdf!=='string')throw new Error('备份缺少原始 PDF。');bytes=Uint8Array.from(atob(data.pdf),c=>c.charCodeAt(0));({pdf}=await readPdf(bytes,passwordPrompt));for(const p of pages){if(p.sourceIndex===null)continue;if(p.sourceIndex>=pdf.numPages){await pdf.destroy();throw new Error('备份页面与原始 PDF 不匹配。');}const v=(await pdf.getPage(p.sourceIndex+1)).getViewport({scale:1});if(Math.abs(v.width-p.width)>1||Math.abs(v.height-p.height)>1){await pdf.destroy();throw new Error('备份页面尺寸不匹配。');}}}
- if(d.kind==='ebook'&&typeof data.source?.base64==='string')bytes=Uint8Array.from(atob(data.source.base64),c=>c.charCodeAt(0));
+ let bytes,pdf;if(pages.some(p=>p.sourceIndex!==null)){bytes=await source?.();if(!bytes)throw new Error('备份缺少原始 PDF。');if(!sync){({pdf}=await readPdf(bytes,passwordPrompt));for(const p of pages){if(p.sourceIndex===null)continue;if(p.sourceIndex>=pdf.numPages){await pdf.destroy();throw new Error('备份页面与原始 PDF 不匹配。');}const v=(await pdf.getPage(p.sourceIndex+1)).getViewport({scale:1});if(Math.abs(v.width-p.width)>1||Math.abs(v.height-p.height)>1){await pdf.destroy();throw new Error('备份页面尺寸不匹配。');}}}}
+ if(d.kind==='ebook'&&source)bytes=await source();
+ if(sync){if(bytes)await store.putBinary(d.id,bytes);await store.save(d);const i=S.docs.findIndex(x=>x.id===d.id);if(i>=0)S.docs[i]=d;else S.docs.push(d);history.delete(d.id);searchCache.delete(d.id);await releasePdfs(S.active===d.id?d.id:S.active);return d.id;}
  try{if(bytes)await store.putBinary(d.id,bytes);await store.save(d);}catch(e){await store.remove(d.id);if(pdf)await pdf.destroy();throw e;}S.docs.push(d);if(pdf)cachePdf(d.id,pdf);return d.id;
 }
 
@@ -427,15 +597,16 @@ async function findNext(delta){if(!S.find.length)return;S.findIndex=(S.findIndex
 function showHelp(){
  const keys=(...k)=>k.map(x=>`<kbd class="shortcut">${x}</kbd>`).join('');
  const rows=[['画笔 · 荧光笔 · 橡皮擦',keys('P','H','E')],['文字 · 矩形 · 套索',keys('T','R','L')],['拖动浏览 · 插入批注',keys('V','C')],['撤销 · 重做',keys('Ctrl Z','Ctrl Shift Z')],['保存',keys('Ctrl S')],['文档内查找 · 搜索笔记',keys('Ctrl F','Ctrl K')],['导出 PDF',keys('Ctrl Shift E')],['缩放页面',keys('Ctrl 滚轮')],['翻页',keys('PageUp','PageDown')],['复制 · 剪切 · 粘贴所选',keys('Ctrl C','Ctrl X','Ctrl V')],['复制一份 · 全选',keys('Ctrl D','Ctrl A')],['删除所选内容',keys('Delete')],['切换整笔 / 局部擦除',keys('E','再按 E')],['分屏打开另一本',keys('Ctrl \\')],['完成文字 · 发送回复',keys('Ctrl Enter')]];
- dialog('快捷键与帮助',`<div class="shortcut-list">${rows.map(([a,b])=>`<div class="menu-row"><span>${a}</span><span class="keys">${b}</span></div>`).join('')}</div><div class="help-grid"><div><strong>${icon('pen')}书写</strong><p>开启「仅用笔」后只有触控笔能书写，手指用于滚动。画笔会随笔压变化粗细。</p></div><div><strong>${icon('lasso')}套索</strong><p>框出内容后可拖动、复制、粘贴或删除；双击文字直接修改。</p></div><div><strong>${icon('title')}页面标题</strong><p>在页面顶部写标题，日期和时间显示在标题下方。第 1 页的标题会同步成笔记名称。</p></div><div><strong>${icon('split')}分屏</strong><p>点击顶栏的分屏按钮，在右侧打开另一本笔记，两边各自编辑、各自保存。</p></div><div><strong>${icon('eraser')}橡皮擦</strong><p>「整笔」碰到就删除整条笔迹；「局部」只擦掉经过的部分。</p></div><div><strong>${icon('comment')}批注与帖子</strong><p>批注固定在页面或笔迹上；帖子一页一帖，可多楼层、逐层回复。</p></div><div><strong>${icon('shield')}保存</strong><p>笔记自动保存在本机。换电脑请导出 .inknote 备份后再导入。</p></div></div>`);
+ dialog('快捷键与帮助',`<div class="shortcut-list">${rows.map(([a,b])=>`<div class="menu-row"><span>${a}</span><span class="keys">${b}</span></div>`).join('')}</div><div class="help-grid"><div><strong>${icon('pen')}书写</strong><p>开启「仅用笔」后只有触控笔能书写，手指用于滚动。画笔会随笔压变化粗细。</p></div><div><strong>${icon('lasso')}套索</strong><p>框出内容后可拖动、复制、粘贴或删除；双击文字直接修改。</p></div><div><strong>${icon('title')}页面标题</strong><p>在页面顶部写标题，日期和时间显示在标题下方。第 1 页的标题会同步成笔记名称。</p></div><div><strong>${icon('split')}分屏</strong><p>点击顶栏的分屏按钮，在右侧打开另一本笔记，两边各自编辑、各自保存。</p></div><div><strong>${icon('eraser')}橡皮擦</strong><p>「整笔」碰到就删除整条笔迹；「局部」只擦掉经过的部分。</p></div><div><strong>${icon('comment')}批注与帖子</strong><p>批注固定在页面或笔迹上；帖子一页一帖，可多楼层、逐层回复。</p></div><div><strong>${icon('shield')}保存</strong><p>笔记自动保存在本机。左下角「一键导入导出」可以把全部笔记导出到一个文件夹，放进网盘或 U 盘带走。</p></div></div>`);
 }
-async function settings(){const storage=await navigator.storage?.estimate?.().catch(()=>({}));const used=(storage?.usage||0)/1024/1024;dialog('设置',`<div class="settings-section"><label class="switch setting-switch"><input type="checkbox" id="setting-pen" role="switch" ${S.penOnly?'checked':''}><span class="switch-track" aria-hidden="true"></span><span class="switch-label"><strong>仅允许触控笔书写</strong><small>手指用于滚动和缩放；关闭时鼠标、触控笔和手指都可以书写。</small></span></label></div><div class="field-label">翻页方式</div>${scrollModeChoice(S.scrollMode)}<p class="field-hint">连续滚动：页面上下相连，像 PDF 阅读器一样一直滚下去。单页翻页：一次显示一页，滚到页面底部再滚动就翻到下一页。</p><div class="field-label">书写工具栏位置</div>${dockChoice(S.toolbarDock)}<p class="field-hint">也可以直接拖动工具栏左端的把手，放到页面的任意一边。</p><div class="field-label">本机笔记</div><div class="storage-meter" style="--amount:${Math.min(100,Math.max(1,(storage?.usage||0)/(storage?.quota||1)*100))}%"><span></span></div><p class="storage-text">${S.docs.length} 本笔记 · 已使用约 ${used.toFixed(1)} MB</p><p class="help-note">笔记保存在这台电脑的应用数据中。换电脑时请先导出 .inknote 备份，再在新设备导入。旧版 Edge 启动器的笔记请先导出备份，再导入此桌面版。</p><div class="menu-choices"><button type="button" id="settings-converter">${icon('reading')}<span>选择 Calibre 转换组件<small>用于 MOBI、AZW3、RTF 等格式；需先在本机安装 Calibre</small></span></button><button type="button" id="settings-help">${icon('help')}<span>快捷键与使用帮助</span></button></div>${actions('保存设置')}`,{submit:async f=>{S.penOnly=$('#setting-pen').checked;await store.setSetting('penOnly',S.penOnly);setToolbarDock(f.get('dock'));setScrollMode(f.get('scrollMode'),{quiet:true});closeModal();if(S.active&&$('#pen-only')){$('#pen-only').checked=S.penOnly;updateTouch();}toast('设置已保存');}});$('#settings-help').onclick=showHelp;$('#settings-converter').onclick=()=>run(async()=>{if(!window.desktop?.chooseConverter)throw new Error('请在独立桌面版中选择 Calibre 的 ebook-convert.exe');const r=await window.desktop.chooseConverter();if(r?.error)throw new Error(r.error);if(r?.selected)toast('Calibre 转换组件已设置');});}
+async function settings(){const storage=await navigator.storage?.estimate?.().catch(()=>({}));const used=(storage?.usage||0)/1024/1024;dialog('设置',`<div class="settings-section"><label class="switch setting-switch"><input type="checkbox" id="setting-pen" role="switch" ${S.penOnly?'checked':''}><span class="switch-track" aria-hidden="true"></span><span class="switch-label"><strong>仅允许触控笔书写</strong><small>手指用于滚动和缩放；关闭时鼠标、触控笔和手指都可以书写。</small></span></label></div><div class="field-label">翻页方式</div>${scrollModeChoice(S.scrollMode)}<p class="field-hint">连续滚动：页面上下相连，像 PDF 阅读器一样一直滚下去。单页翻页：一次显示一页，滚到页面底部再滚动就翻到下一页。</p><div class="field-label">书写工具栏位置</div>${dockChoice(S.toolbarDock)}<p class="field-hint">也可以直接拖动工具栏左端的把手，放到页面的任意一边。</p><div class="field-label">本机笔记</div><div class="storage-meter" style="--amount:${Math.min(100,Math.max(1,(storage?.usage||0)/(storage?.quota||1)*100))}%"><span></span></div><p class="storage-text">${S.docs.length} 本笔记 · 已使用约 ${used.toFixed(1)} MB</p><p class="help-note">笔记保存在这台电脑的应用数据中。换电脑时用「导入导出」一键导出全部笔记，再在新电脑导入。</p><div class="menu-choices"><button type="button" id="settings-exchange">${icon('folder')}<span>导入导出文件夹<small>一键导出全部笔记到文件夹，或从文件夹 / 文件一键导入</small></span></button><button type="button" id="settings-converter">${icon('reading')}<span>选择 Calibre 转换组件<small>用于 MOBI、AZW3、RTF 等格式；需先在本机安装 Calibre</small></span></button><button type="button" id="settings-help">${icon('help')}<span>快捷键与使用帮助</span></button></div>${actions('保存设置')}`,{submit:async f=>{S.penOnly=$('#setting-pen').checked;await store.setSetting('penOnly',S.penOnly);setToolbarDock(f.get('dock'));setScrollMode(f.get('scrollMode'),{quiet:true});closeModal();if(S.active&&$('#pen-only')){$('#pen-only').checked=S.penOnly;updateTouch();}toast('设置已保存');}});$('#settings-help').onclick=showHelp;$('#settings-exchange').onclick=()=>run(async()=>{closeModal();await exchangeDialog();});$('#settings-converter').onclick=()=>run(async()=>{if(!window.desktop?.chooseConverter)throw new Error('请在独立桌面版中选择 Calibre 的 ebook-convert.exe');const r=await window.desktop.chooseConverter();if(r?.error)throw new Error(r.error);if(r?.selected)toast('Calibre 转换组件已设置');});}
 async function newDiscussion(){
  let images=[],reading=false;
  dialog('新建帖子',`<label class="field-label" for="post-title">标题</label><input class="field-input" name="title" id="post-title" maxlength="160" required placeholder="这一页想记录什么？" autocomplete="off"><label class="field-label" for="post-body">主楼 · 1楼</label><textarea class="field-input" name="body" id="post-body" rows="6" maxlength="20000" placeholder="写下正文。发表后可以继续发 2 楼、3 楼，或逐层回复。" required></textarea><div class="compose-image-row"><label class="btn tonal small" for="post-image-files">${icon('image')}添加图片</label><input id="post-image-files" class="visually-hidden" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple><span class="field-hint">最多 12 张，显示为正方形缩略图，点击看原图</span></div><div class="comment-images" id="post-images-preview"></div><p class="help-note">每个帖子单独占一页，创建日期和时间自动记录。</p>${actions('发表帖子')}`,{submit:async f=>{
   if(reading){toast('图片正在准备，请稍候');return;}const title=f.get('title').trim(),body=f.get('body').trim();if(!title||!body)return;
   const d=createDiscussion(title,S.view.startsWith('folder:')?S.view.slice(7):'',Date.now(),body,images);await flush();await store.save(d);S.docs.push(d);closeModal();await openDoc(d.id);toast('帖子已发表，日期和时间已自动记录');
  }});
+ markdownTools($('#post-body'));
  $('#post-image-files').onchange=e=>run(async()=>{const files=[...e.target.files];if(images.length+files.length>12)throw new Error('每个主楼最多 12 张图片');reading=true;try{for(const file of files){const image=await readCommentImage(file);if(images.reduce((n,p)=>n+p.src.length,0)+image.src.length>64*1024*1024)throw new Error('图片合计超过 48 MB');images.push(image);}paint();}finally{reading=false;e.target.value='';}});
  function paint(){const target=$('#post-images-preview');if(!target)return;target.innerHTML=images.map((image,i)=>`<div class="draft-image"><img class="comment-image-thumb" src="${image.thumbnail||image.src}" alt="${E(image.name)}"><button class="draft-image-remove" type="button" data-remove-post-image="${i}" aria-label="移除图片" title="移除">×</button></div>`).join('');target.querySelectorAll('[data-remove-post-image]').forEach(b=>b.onclick=()=>{images.splice(+b.dataset.removePostImage,1);paint();});}
 }
@@ -452,6 +623,8 @@ function renderDiscussion(){
  refreshTitle();bindTabRename();renderComments();refreshHistory();refreshDiscussionStats();status();$('#discussion-search').oninput=e=>{S.discussionQuery=e.target.value;renderComments();};
 }
 function refreshDiscussionStats(){const el=$('#discussion-total');if(!el||doc()?.kind!=='discussion')return;const stats=discussionStats(doc());el.textContent=`${stats.threads} 个楼层 · ${stats.replies} 条回复 · ${stats.images} 张图片`;}
+// Scroll a just-posted reply into view above the sticky composer, which would otherwise cover its last lines.
+function revealComment(el){if(!el)return;el.scrollIntoView({block:'nearest'});const c=document.querySelector('.comment-compose');if(!c)return;const over=el.getBoundingClientRect().bottom-c.getBoundingClientRect().top+12;if(over<=0)return;let p=el.parentElement;while(p&&!(p.scrollHeight>p.clientHeight&&/auto|scroll/.test(getComputedStyle(p).overflowY)))p=p.parentElement;p?.scrollBy(0,over);}
 function newDiscussionThread(){if(doc()?.kind==='discussion'){if(S.commentImagesBusy){toast('图片正在准备，请稍候');return;}const previous=S.commentDraft;S.commentDraft=discussionDraft(page());if(previous?.pageId===page().id){S.commentDraft.text=$('#comment-composer')?.value??previous.text??'';S.commentDraft.images=previous.images||[];}S.commentFocus=true;renderComments();$('#comment-composer')?.scrollIntoView({block:'center',behavior:'smooth'});return;}const v=page().infinite?S.viewport:null;startThreadAt({x:(v?.x||0)+46,y:(v?.y||0)+110});}
 function makeCanvasPage(template,infinite=true,kind='plain',{spacing='standard',margin,title=''}={}){
  const p=infinite?newInfinitePage(template):newPage(template);p.comments=[];p.title=title;p.spacing=SPACINGS.includes(spacing)?spacing:'standard';p.margin=margin===undefined?template==='ruled'||template==='grid':!!margin;
@@ -470,6 +643,24 @@ function startThreadAt(position,annotationIds=[]){
  S.commentDraft={pageId:page().id,anchor:{...position},annotationIds,parentId:null,text:'',images:[]};S.commentsOpen=true;S.commentFocus=true;renderComments();
 }
 function beginReply(id){const parent=(page().comments||[]).find(n=>n.id===id);if(!parent)return;S.commentDraft=doc().kind==='discussion'?discussionDraft(page(),id):{pageId:page().id,parentId:id,text:'',images:[]};S.activeThread=parent.threadId;S.commentsOpen=true;S.commentFocus=true;renderComments();drawInk();}
+// Posts are stored as Markdown: a small format row above each post editor, and pasted formatted content
+// (web pages, AI answers, Word) arrives as Markdown with its headings, lists, bold, links and formulas.
+function markdownTools(area){
+ if(!area||area.previousElementSibling?.classList.contains('md-tools'))return;
+ const bar=document.createElement('div');bar.className='md-tools';bar.setAttribute('role','toolbar');bar.setAttribute('aria-label','格式');
+ const items=[['bold','<b>B</b>','加粗'],['italic','<i>I</i>','斜体'],['heading','H','标题'],['ul','•','列表'],['ol','1.','编号'],['quote','❝','引用'],['code','&lt;/&gt;','代码'],['math','∑','公式（LaTeX）'],['link','链接','链接']];
+ bar.innerHTML=items.map(([k,l,tt])=>`<button type="button" data-md="${k}" title="${tt}" aria-label="${tt}">${l}</button>`).join('')+'<span class="md-hint">支持 Markdown 和 $公式$</span>';
+ area.before(bar);bar.onpointerdown=e=>e.preventDefault();
+ bar.onclick=e=>{const k=e.target.closest('[data-md]')?.dataset.md;if(!k)return;const s=area.selectionStart,en=area.selectionEnd,v=area.value,sel=v.slice(s,en);
+  const lineStart=v.lastIndexOf('\n',s-1)+1;let text,cs,ce;
+  const wrap=(l,r,ph)=>{const body=sel||ph;text=v.slice(0,s)+l+body+r+v.slice(en);cs=s+l.length;ce=cs+body.length;};
+  const prefix=p=>{const block=v.slice(lineStart,en)||'';const lines=(block||'').split('\n').map((x,i)=>(typeof p==='function'?p(i):p)+x);text=v.slice(0,lineStart)+lines.join('\n')+v.slice(en);cs=ce=lineStart+lines.join('\n').length;};
+  if(k==='bold')wrap('**','**','粗体');else if(k==='italic')wrap('*','*','斜体');else if(k==='code')sel.includes('\n')?wrap('```\n','\n```','代码'):wrap('`','`','代码');
+  else if(k==='math')sel.includes('\n')?wrap('$$\n','\n$$','x^2'):wrap('$','$','x^2');else if(k==='link')wrap('[',`](https://)`,'链接文字');
+  else if(k==='heading')prefix('## ');else if(k==='ul')prefix('- ');else if(k==='ol')prefix(i=>`${i+1}. `);else if(k==='quote')prefix('> ');
+  area.value=text;area.focus();area.setSelectionRange(cs,ce);area.dispatchEvent(new Event('input',{bubbles:true}));};
+ area.addEventListener('paste',e=>{const html=e.clipboardData.getData('text/html');if(!html||!html.trim())return;const md=htmlToMarkdown(html);if(!md)return;e.preventDefault();const s=area.selectionStart,en=area.selectionEnd;area.setRangeText(md,s,en,'end');area.dispatchEvent(new Event('input',{bubbles:true}));});
+}
 function renderComments(){
  const panel=$('#comments-panel');if(!panel||!page())return;const forum=doc().kind==='discussion';
  if(S.commentDraft?.pageId!==page().id)S.commentDraft=null;
@@ -488,11 +679,11 @@ function renderComments(){
    const info=layout?.get(node.id),indent=forum?0:Math.min(depth,5)*14;
    const where=info?(depth?`<span class="comment-location">${E(info.label)}</span><span class="comment-depth">第${depth+1}层</span><button class="comment-parent" data-action="comment-focus" data-id="${node.parentId}" title="跳到 ${E(info.parentLabel)}">${icon('reply')}${E(info.parentLabel)}</button>`:`<span class="comment-location floor">${E(info.label)}</span>`):'';
    const edited=node.updatedAt&&node.updatedAt-node.createdAt>1000?`<span class="comment-edited" title="编辑于 ${E(formatTimestamp(node.updatedAt))}">已编辑</span>`:'';
-   return `<article class="comment-item ${depth?'comment-reply':'comment-root'}" id="comment-${node.id}" ${indent?`style="margin-left:${indent}px"`:''}><span class="comment-avatar" aria-hidden="true">我</span><div class="comment-content"><div class="comment-meta"><span class="comment-author">我</span>${where}<time datetime="${new Date(node.createdAt).toISOString()}">${E(formatTimestamp(node.createdAt))}</time>${edited}</div>${node.body?`<div class="comment-body">${E(node.body)}</div>`:''}${commentImages(node)}<div class="comment-actions"><button data-action="comment-reply" data-id="${node.id}">${icon('reply')}回复</button><button data-action="comment-edit" data-id="${node.id}">编辑</button><button data-action="comment-delete" data-id="${node.id}">删除</button></div></div></article>`;
+   return `<article class="comment-item ${depth?'comment-reply':'comment-root'}" id="comment-${node.id}" ${indent?`style="margin-left:${indent}px"`:''}><span class="comment-avatar" aria-hidden="true">我</span><div class="comment-content"><div class="comment-meta"><span class="comment-author">我</span>${where}<time datetime="${new Date(node.createdAt).toISOString()}">${E(formatTimestamp(node.createdAt))}</time>${edited}</div>${node.body?`<div class="comment-body rich">${postHtml(node.body)}</div>`:''}${commentImages(node)}<div class="comment-actions"><button data-action="comment-reply" data-id="${node.id}">${icon('reply')}回复</button><button data-action="comment-edit" data-id="${node.id}">编辑</button><button data-action="comment-delete" data-id="${node.id}">删除</button></div></div></article>`;
   };
   return `<section class="comment-thread ${S.activeThread===root.id?'active':''}" id="thread-${root.id}">${forum?'':`<div class="thread-bar"><button class="thread-number" data-action="comment-locate" data-id="${root.id}" title="在页面上定位">${i+1}</button><span>页面批注</span><span class="spacer"></span><button class="link-btn" data-action="comment-locate" data-id="${root.id}">定位</button></div>`}${forum?renderCommentTree(visible,renderItem):visible.map(renderItem).join('')}${nodes.length>1?`<button class="thread-collapse ${folded?'folded':''}" data-action="comment-collapse" data-id="${root.id}" aria-expanded="${!folded}">${icon('down')}${folded?'展开':'收起'} ${nodes.length-1} 条回复</button>`:''}</section>`;
  }).join('')}</div><div class="comment-compose ${parent?'is-reply':''}">${draft?`<div class="compose-label"><span class="compose-target">${icon(parent?'reply':forum?'plus':'comment')}${E(composeLabel)}</span>${composeDetail?`<span class="compose-detail">${E(composeDetail)}</span>`:''}<span class="spacer"></span>${forum&&parent?`<button class="link-btn compose-new-floor" data-action="new-discussion-thread">改发新楼层</button>`:''}<button class="icon-btn tiny" data-action="comment-cancel" title="${forum&&!parent?'清空':'取消'}" aria-label="取消输入">${icon('close')}</button></div><textarea id="comment-composer" maxlength="20000" rows="3" placeholder="${forum?(parent?`回复 ${E(parentInfo?.label||'')}…`:'在本帖发布一个新楼层…'):'写下你的批注…'}" aria-label="${forum?'回复内容':'批注内容'}">${E(draft.text||'')}</textarea>${draftImages(draft)}<div class="compose-footer"><button class="icon-btn" data-action="comment-image-add" ${S.commentImagesBusy?'disabled':''} title="添加图片（显示为正方形缩略图）" aria-label="添加图片">${S.commentImagesBusy?'<i class="loading-inline"></i>':icon('image')}</button><span class="compose-hint">Ctrl Enter 发送 · 自动记录时间</span><button class="btn primary send-btn" data-action="comment-submit">${icon('send')}${E(submitLabel)}</button></div>`:`<button class="btn tonal block" data-action="tool" data-value="comment">${icon('plus')}在页面上插入批注</button><p>批注和回复保存在本机，随备份一起导出。</p>`}</div>`;
- const composer=$('#comment-composer');if(composer){composer.oninput=()=>{if(S.commentDraft)S.commentDraft.text=composer.value;};composer.onkeydown=e=>{e.stopPropagation();if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();run(submitComment);}};if(S.commentFocus){S.commentFocus=false;composer.focus();}}
+ renderMath(panel);const composer=$('#comment-composer');if(composer){markdownTools(composer);composer.oninput=()=>{if(S.commentDraft)S.commentDraft.text=composer.value;};composer.onkeydown=e=>{e.stopPropagation();if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();run(submitComment);}};if(S.commentFocus){S.commentFocus=false;composer.focus();}}
 }
 function focusDiscussionComment(id){
  if(doc()?.kind!=='discussion')return;const node=(page().comments||[]).find(n=>n.id===id);if(!node)return;
@@ -502,13 +693,13 @@ function focusDiscussionComment(id){
 async function submitComment(){
  const draft=S.commentDraft;if(!draft||draft.pageId!==page().id)return;if(S.commentImagesBusy){toast('图片正在准备，请稍候');return;}const value=$('#comment-composer')?.value||draft.text,before=pageSnapshot();let node;
  if(doc().kind==='discussion'){node=publishDiscussionDraft(page(),draft,value);S.discussionQuery='';const input=$('#discussion-search');if(input)input.value='';}else if(draft.parentId)node=replyTo(page(),draft.parentId,value,Date.now(),draft.images||[]);else node=addThread(page(),draft.anchor,value,draft.annotationIds,Date.now(),draft.images||[]);
- S.commentDraft=null;S.activeThread=node.threadId;S.collapsedThreads.delete(node.threadId);remember(before);renderComments();if(doc().kind==='discussion'){refreshDiscussionStats();}if(page().infinite)paintInfinite(false);else drawInk();document.querySelector('#comment-'+node.id)?.scrollIntoView({block:'nearest'});
+ S.commentDraft=null;S.activeThread=node.threadId;S.collapsedThreads.delete(node.threadId);remember(before);renderComments();if(doc().kind==='discussion'){refreshDiscussionStats();}if(page().infinite)paintInfinite(false);else drawInk();revealComment(document.querySelector('#comment-'+node.id));
 }
 function collapseThread(id){if(S.collapsedThreads.has(id))S.collapsedThreads.delete(id);else S.collapsedThreads.add(id);renderComments();}
 async function locateComment(id){
  const root=roots(page()).find(n=>n.id===id);if(!root)return;S.activeThread=id;if(doc().kind==='discussion'){renderComments();document.querySelector('#thread-'+id)?.scrollIntoView({block:'nearest'});return;}const p=commentPosition(page(),root),w=$('#workspace');w.scrollTo({left:Math.max(0,p.x*S.zoom-w.clientWidth/2),top:Math.max(0,p.y*S.zoom-w.clientHeight/2),behavior:'smooth'});renderComments();drawInk();
 }
-function editCommentDialog(id){const node=(page().comments||[]).find(n=>n.id===id);if(!node)return;dialog(doc().kind==='discussion'?'编辑内容':'编辑批注',`<label class="field-label" for="comment-edit-body">内容</label><textarea class="field-input" id="comment-edit-body" name="body" rows="6" maxlength="20000" required>${E(node.body)}</textarea>${actions('保存')}`,{submit:async f=>{const before=pageSnapshot();editComment(page(),id,f.get('body'));closeModal();remember(before);drawInk();}});}
+function editCommentDialog(id){const node=(page().comments||[]).find(n=>n.id===id);if(!node)return;dialog(doc().kind==='discussion'?'编辑内容':'编辑批注',`<label class="field-label" for="comment-edit-body">内容</label><textarea class="field-input" id="comment-edit-body" name="body" rows="8" maxlength="20000" required>${E(node.body)}</textarea>${actions('保存')}`,{submit:async f=>{const before=pageSnapshot();editComment(page(),id,f.get('body'));closeModal();remember(before);drawInk();}});markdownTools($('#comment-edit-body'));}
 function deleteCommentDialog(id){const node=(page().comments||[]).find(n=>n.id===id);if(!node)return;dialog(doc().kind==='discussion'?'删除这一条及其回复？':'删除这条批注？',`<p class="help-note">${doc().kind==='discussion'?'这一条和它下面的所有回复会一起移除，其他楼层的编号不会改变。':'这条批注和它下面的回复会一起移除。'}可以用 Ctrl Z 撤销。</p>${actions('删除',true)}`,{submit:async()=>{const before=pageSnapshot();removeComment(page(),id);S.commentDraft=null;closeModal();remember(before);drawInk();}});}
 function paintInfinite(allowGrowth=false){
  const p=page(),workspace=$('#workspace'),wrapper=$('#page-wrapper');if(!p?.infinite||!workspace||!wrapper)return;
@@ -626,8 +817,6 @@ function bindTitleInput(input){
 }
 
 // ---------- Text boxes: click an existing one to edit it ----------
-function textAt(p){return page().annotations.findLast(a=>a.type==='text'&&a.id!==S.editingText&&inside(p,bounds(a),4/S.zoom));}
-function editTextAt(e){if(!page()||textarea||!['lasso','hand','text'].includes(S.tool))return;const hit=textAt(point(e));if(hit){e.preventDefault();S.selection.clear();startText({x:hit.x,y:hit.y},hit);}}
 
 // ---------- Eraser: whole strokes, or only the part you rub over ----------
 function densify(points,step){const out=[points[0]];for(let i=1;i<points.length;i++){const a=points[i-1],b=points[i],n=Math.ceil(Math.hypot(b.x-a.x,b.y-a.y)/step);for(let k=1;k<n;k++){const t=k/n;out.push({x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t,p:a.p+(b.p-a.p)*t});}out.push(b);}return out;}
@@ -637,7 +826,7 @@ function partialErase(from,to,r){
  const steps=Math.max(1,Math.ceil(Math.hypot(to.x-from.x,to.y-from.y)/Math.max(1,r/2)));
  for(const a of page().annotations){
   if(!intersects(bounds(a),box)){out.push(a);continue;}
-  if(a.type==='text'){let hit=false;for(let i=0;i<=steps&&!hit;i++)hit=hitAnnotation(a,{x:from.x+(to.x-from.x)*i/steps,y:from.y+(to.y-from.y)*i/steps},r);if(hit)changed=true;else out.push(a);continue;}
+  if(a.type==='text'||a.type==='rich'){let hit=false;for(let i=0;i<=steps&&!hit;i++)hit=hitAnnotation(a,{x:from.x+(to.x-from.x)*i/steps,y:from.y+(to.y-from.y)*i/steps},r);if(hit)changed=true;else out.push(a);continue;}
   const stroke=a.type==='rect'?rectToStroke(a):a,pad=r+stroke.width/2,pts=densify(stroke.points,Math.max(.4,r/3)),hit=pts.map(q=>distanceToSegment(q,from,to)<=pad);
   if(!hit.some(Boolean)){out.push(a);continue;}
   changed=true;let piece=[],first=true;const keep=()=>{if(piece.length>=2){out.push({...stroke,id:first?a.id:uid(),points:piece});first=false;}piece=[];};
@@ -687,7 +876,7 @@ function pageSetupDialog(){
 const searchCache=new Map();
 function searchText(d){
  const hit=searchCache.get(d.id);if(hit&&hit.at===d.updatedAt&&hit.title===d.title)return hit.text;
- const parts=[];for(const p of d.pages){if(p.title)parts.push(p.title);for(const a of p.annotations)if(a.type==='text')parts.push(a.text);for(const n of p.comments||[]){parts.push(n.body);for(const im of n.images||[])parts.push(im.name);}if(p.reading)for(const b of p.reading.blocks||[])if(typeof b.text==='string')parts.push(b.text);}
+ const parts=[];for(const p of d.pages){if(p.title)parts.push(p.title);for(const a of p.annotations)if(a.type==='text')parts.push(a.text);else if(a.type==='rich')parts.push(a.plain||richPlainText(a.html));for(const n of p.comments||[]){parts.push(n.body);for(const im of n.images||[])parts.push(im.name);}if(p.reading)for(const b of p.reading.blocks||[])if(typeof b.text==='string')parts.push(b.text);}
  const raw=parts.join('\n');const text={raw,lower:raw.toLocaleLowerCase()};searchCache.set(d.id,{at:d.updatedAt,title:d.title,text});return text;
 }
 function matchDoc(d,q){if(!q)return {ok:true};if(d.title.toLocaleLowerCase().includes(q))return {ok:true};const t=searchText(d),i=t.lower.indexOf(q);if(i<0)return {ok:false};const a=Math.max(0,i-16),b=Math.min(t.raw.length,i+q.length+28);return {ok:true,snippet:{pre:(a?'…':'')+t.raw.slice(a,i).replace(/\s+/g,' '),hit:t.raw.slice(i,i+q.length),post:t.raw.slice(i+q.length,b).replace(/\s+/g,' ')+(b<t.raw.length?'…':'')}};}
@@ -722,8 +911,8 @@ async function paintGhost(g){
  const ratio=Math.min(devicePixelRatio||1,2),s=ghostSize(q),docId=S.active;
  try{
   const c=document.createElement('canvas'),ctx=c.getContext('2d');c.width=Math.round(s.w*ratio);c.height=Math.round(s.h*ratio);
-  if(q.infinite){const e=contentExtent(q),k=Math.min(c.width/e.width,c.height/e.height);ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);ctx.save();ctx.scale(k,k);drawInfinitePaper(ctx,q,{x:0,y:0,width:e.width,height:e.height});q.annotations.forEach(a=>drawAnnotation(ctx,a));ctx.restore();}
-  else{const bg=document.createElement('canvas');await renderBackground(bg,q,S.pdf,{cssWidth:s.w,pixelRatio:ratio});if(!g.isConnected||docId!==S.active)return;c.width=bg.width;c.height=bg.height;ctx.drawImage(bg,0,0);g._bg=bg;ctx.save();ctx.scale(c.width/q.width,c.height/q.height);q.annotations.forEach(a=>drawAnnotation(ctx,a));drawCommentPins(ctx,q);ctx.restore();}
+  if(q.infinite){await prepareRich(q.annotations,1);const e=contentExtent(q),k=Math.min(c.width/e.width,c.height/e.height);ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);ctx.save();ctx.scale(k,k);drawInfinitePaper(ctx,q,{x:0,y:0,width:e.width,height:e.height});q.annotations.forEach(a=>drawAnnotation(ctx,a));ctx.restore();}
+  else{const bg=document.createElement('canvas');await renderBackground(bg,q,S.pdf,{cssWidth:s.w,pixelRatio:ratio});await prepareRich(q.annotations,ratio*S.zoom);if(!g.isConnected||docId!==S.active)return;c.width=bg.width;c.height=bg.height;ctx.drawImage(bg,0,0);g._bg=bg;ctx.save();ctx.scale(c.width/q.width,c.height/q.height);q.annotations.forEach(a=>drawAnnotation(ctx,a));drawCommentPins(ctx,q);ctx.restore();}
   if(!g.isConnected)return;g.querySelector('canvas')?.remove();g.prepend(c);g.dataset.painted='1';
  }finally{delete g.dataset.painting;}
 }
@@ -732,7 +921,7 @@ function swapActive(j){
  const ws=$('#workspace'),wrapper=$('#page-wrapper'),g=ws?.querySelector(`.page-ghost[data-index="${j}"]`);if(!g||j===S.page||doc().pages[j]?.infinite)return false;
  finishText();if(S.selection.size){S.selection.clear();drawInk();}
  const og=makeGhost(S.page),pdfc=$('#pdf-canvas'),ink=$('#ink-canvas');
- if($('#page-loading').hidden&&pdfc.width>1){const c=document.createElement('canvas'),bg=document.createElement('canvas');c.width=bg.width=pdfc.width;c.height=bg.height=pdfc.height;bg.getContext('2d').drawImage(pdfc,0,0);const x=c.getContext('2d');x.drawImage(bg,0,0);x.drawImage(ink,0,0,c.width,c.height);og.append(c);og._bg=bg;og.dataset.painted='1';}
+ if($('#page-loading').hidden&&pdfc.width>1&&!page().annotations.some(a=>a.type==='rich')){const c=document.createElement('canvas'),bg=document.createElement('canvas');c.width=bg.width=pdfc.width;c.height=bg.height=pdfc.height;bg.getContext('2d').drawImage(pdfc,0,0);const x=c.getContext('2d');x.drawImage(bg,0,0);x.drawImage(ink,0,0,c.width,c.height);og.append(c);og._bg=bg;og.dataset.painted='1';}
  const prefill=g._bg;ws.insertBefore(og,wrapper);ghostObserver?.unobserve(g);g.replaceWith(wrapper);ghostObserver?.observe(og);
  S.commentDraft=null;S.activeThread=null;S.page=j;showPage({resetScroll:false,keepStack:true,prefill}).catch(failure);
  document.querySelector('.page-thumb.active')?.scrollIntoView({block:'nearest'});return true;
@@ -810,6 +999,121 @@ function bindToolbarDock(){
  handle.onkeydown=e=>{const dock={ArrowDown:'bottom',ArrowUp:'top',ArrowLeft:'left',ArrowRight:'right'}[e.key];if(dock){e.preventDefault();e.stopPropagation();setToolbarDock(dock);handle.focus();}};
 }
 function dockChoice(value){return `<div class="segmented" role="radiogroup" aria-label="工具栏位置">${DOCKS.map(v=>`<label><input type="radio" name="dock" value="${v}" ${v===value?'checked':''}><span>${icon('check')}${DOCK_NAMES[v]}</span></label>`).join('')}</div>`;}
+// ---------- Import / export folder ----------
+// One click writes every note as its own .inknote file into a folder the user picked (put it inside any cloud-drive
+// sync folder, or copy it anywhere); one click reads that folder back. Files carry the note id, so importing again
+// updates the note instead of making a copy. Per note we remember its updatedAt at the last export/import: a file that
+// is newer while the local note is unchanged replaces it; if both changed, the file comes in as a "（导入版本）" copy.
+const EXCHANGE={state:null,status:null,busy:false};
+const exchangeDesktop=()=>!!window.desktop?.exchange&&!EMBED;
+async function xcall(channel,payload){const r=await window.desktop.exchange(channel,payload);if(r?.error)throw new Error(r.error);return r?.value;}
+function ago(t){const s=Math.max(0,(Date.now()-t)/1000);return s<60?'刚刚':s<3600?Math.floor(s/60)+' 分钟前':s<86400?Math.floor(s/3600)+' 小时前':new Date(t).toLocaleDateString('zh-CN',{month:'short',day:'numeric'});}
+async function exchangeState(){if(!EXCHANGE.state){const s=await store.setting('exchangeState');EXCHANGE.state=s&&typeof s==='object'?{map:s.map||{},lastExport:s.lastExport||0,lastImport:s.lastImport||0}:{map:{},lastExport:0,lastImport:0};}return EXCHANGE.state;}
+async function saveExchangeState(){await store.setSetting('exchangeState',EXCHANGE.state);}
+const shortId=id=>String(id).replace(/[^\w-]/g,'').slice(0,8);
+const exportName=d=>filename(d.title).slice(0,80)+'-'+shortId(d.id)+'.inknote';
+const ofNote=(name,id)=>name.toLowerCase().endsWith('-'+shortId(id).toLowerCase()+'.inknote');
+async function refreshExchangeBadge(){
+ const el=$('#exchange-status');if(!el)return;const st=await exchangeState().catch(()=>null);
+ if(exchangeDesktop()&&!EXCHANGE.status)EXCHANGE.status=await xcall('exchange:status').catch(()=>null);
+ const f=EXCHANGE.status?.folder,last=Math.max(st?.lastExport||0,st?.lastImport||0);
+ el.querySelector('.exchange-text').textContent=exchangeDesktop()&&!f?'导入导出文件夹 · 未设置':last?(st.lastExport>=st.lastImport?'上次导出 · ':'上次导入 · ')+ago(last):'一键导入导出';
+ el.title=f?'导入导出文件夹：'+f:'一键导出全部笔记，或从文件导入';
+}
+function markExchangeDeleted(id){run(async()=>{const st=await exchangeState();if(st.map[id]){st.map[id]={deleted:true};await saveExchangeState();}});}
+async function writeExchangeFile(name,blob,replaces){
+ const {token}=await xcall('exchange:write-begin',{name,size:blob.size});let ok=false;
+ try{const step=16*1024*1024;for(let o=0;o<blob.size;o+=step)await xcall('exchange:write-chunk',{token,bytes:new Uint8Array(await blob.slice(o,o+step).arrayBuffer())});ok=true;}
+ finally{await xcall('exchange:write-end',{token,ok,replaces}).catch(e=>{if(ok)throw e;});}
+}
+async function readExchangeFile(f){
+ const step=16*1024*1024,parts=[];
+ for(let o=0;o<f.size;o+=step)parts.push(await xcall('exchange:read',{name:f.name,start:o,end:Math.min(f.size,o+step)-1}));
+ return new Blob(parts);
+}
+async function exportAll(){
+ if(EXCHANGE.busy){toast('正在处理，请稍候');return;}
+ const st=await exchangeState();finishText();await flush();
+ const notes=S.docs.filter(d=>!(d.sample&&d.sample===d.updatedAt)); // untouched sample notes exist on every computer already
+ if(!exchangeDesktop()){ // browser: one ZIP holding every note's .inknote
+  EXCHANGE.busy=true;try{toast(`正在打包 ${notes.length} 本笔记…`);const entries=[];for(const d of notes)entries.push({name:exportName(d),data:new Uint8Array(await (await backupBlob(d)).arrayBuffer())});
+   for(const d of notes)st.map[d.id]={local:d.updatedAt};st.lastExport=Date.now();
+   if(await download(await writeZip(entries),'墨页全部笔记-'+new Date().toISOString().slice(0,10)+'.zip','application/zip')){await saveExchangeState();toast(`已导出 ${entries.length} 本笔记`);}
+  }finally{EXCHANGE.busy=false;refreshExchangeBadge();}return;
+ }
+ let status=EXCHANGE.status=await xcall('exchange:status');
+ if(!status.folder||!status.exists){status=EXCHANGE.status=await xcall('exchange:choose');if(!status.folder)return;}
+ EXCHANGE.busy=true;let written=0,skipped=0,removed=0;
+ try{
+  const files=await xcall('exchange:list'),names=new Set(files.map(f=>f.name));toast(`正在导出 ${notes.length} 本笔记…`);
+  for(const d of notes){
+   const name=exportName(d),e=st.map[d.id],stale=files.filter(f=>f.name!==name&&ofNote(f.name,d.id)).map(f=>f.name);
+   if(e&&!e.deleted&&e.local===d.updatedAt&&names.has(name)&&!stale.length){skipped++;continue;}
+   await writeExchangeFile(name,await backupBlob(d),stale);st.map[d.id]={local:d.updatedAt};written++;
+  }
+  for(const [id,e] of Object.entries(st.map)){if(!e.deleted||e.removed||S.docs.some(d=>d.id===id))continue;const del=files.filter(f=>ofNote(f.name,id)).map(f=>f.name);if(del.length)removed+=(await xcall('exchange:remove',{names:del})).removed;e.removed=true;}
+  st.lastExport=Date.now();await saveExchangeState();
+  toast(`已导出到文件夹：写入 ${written} 本`+(skipped?`，${skipped} 本没有改动`:'')+(removed?`，移除 ${removed} 个已删除笔记的文件`:''));
+ }finally{EXCHANGE.busy=false;refreshExchangeBadge();}
+}
+// sources: [{name, blob:()=>Promise<Blob>}]; explicit = the user picked these files themselves.
+async function mergeImport(sources,{explicit=false}={}){
+ if(EXCHANGE.busy||importing){toast('正在处理，请稍候');return;}
+ const st=await exchangeState();finishText();await flush();EXCHANGE.busy=true;
+ const open=new Set([S.active,S.split?.id].filter(Boolean)),c={added:0,updated:0,same:0,older:0,copies:0,deleted:0,busy:0,failed:0};
+ const expand=async s=>{const blob=await s.blob();if(!await isZip(blob))return [{name:s.name,blob}];const z=await readZip(blob);if(z.has('inknote.json'))return [{name:s.name,blob}];
+  const out=[];for(const [n,entry] of z)if(/\.inknote$/i.test(n)&&!n.split('/').pop().startsWith('.'))out.push({name:n.split('/').pop(),entry});return out;};
+ try{
+  if(sources.length)toast(`正在导入 ${sources.length} 个文件…`);
+  for(const s of sources){
+   let items;try{items=await expand(s);}catch(e){c.failed++;failure(new Error(`${s.name}：${e.message}`));continue;}
+   for(const it of items){
+    try{
+     const file=it.blob||new Blob([await readEntry(it.entry)]);if(file.size>1024*1024*1024)throw new Error('文件超过 1 GB。');
+     const {data,source}=await readBackup(file);const raw=data?.document;if(data?.format!=='inknote'||!raw)throw new Error('不是有效的 InkNote 备份文件。');
+     const id=typeof raw.id==='string'&&/^[\w-]{8,64}$/.test(raw.id)?raw.id:null;
+     if(!id){await importBackup(null,{data,source});c.added++;continue;}
+     const e=st.map[id],local=S.docs.find(d=>d.id===id),fUpd=Number.isFinite(raw.updatedAt)?raw.updatedAt:0;
+     if(e?.deleted&&!local&&!explicit){c.deleted++;continue;}
+     if(!local){const nid=await importBackup(null,{data,source,keepId:true});st.map[nid]={local:S.docs.find(d=>d.id===nid).updatedAt};c.added++;continue;}
+     if(fUpd===local.updatedAt){st.map[id]={local:fUpd};c.same++;continue;}
+     if(fUpd<local.updatedAt){c.older++;continue;}
+     if(!e||e.deleted||e.local!==local.updatedAt){raw.title=String(raw.title||'').slice(0,140)+'（导入版本）';await importBackup(null,{data,source});c.copies++;continue;}
+     if(open.has(id)){c.busy++;continue;}
+     await importBackup(null,{data,source,keepId:true});st.map[id]={local:S.docs.find(d=>d.id===id).updatedAt};c.updated++;
+    }catch(err){c.failed++;failure(new Error(`${it.name}：${err.message}`));}
+   }
+  }
+  st.lastImport=Date.now();await saveExchangeState();
+  if(!S.active)renderLibrary();else refreshTitle();
+  const parts=[c.added&&`新增 ${c.added} 本`,c.updated&&`更新 ${c.updated} 本`,c.copies&&`${c.copies} 本两边都改过，另存为「…（导入版本）」`,(c.same+c.older)&&`${c.same+c.older} 本本机已是最新`,c.deleted&&`跳过 ${c.deleted} 本你在本机删除过的笔记`,c.busy&&`${c.busy} 本正在打开，关闭后再导入一次`,c.failed&&`${c.failed} 个文件失败`].filter(Boolean);
+  toast(parts.length?'导入完成：'+parts.join('，'):'文件夹里没有墨页笔记（.inknote）');
+ }finally{EXCHANGE.busy=false;refreshExchangeBadge();}
+}
+async function importFromFolder(){
+ if(!exchangeDesktop()){$('#merge-input').click();return;}
+ let status=EXCHANGE.status=await xcall('exchange:status');
+ if(!status.folder||!status.exists){status=EXCHANGE.status=await xcall('exchange:choose');if(!status.folder)return;}
+ const files=await xcall('exchange:list');
+ await mergeImport(files.map(f=>({name:f.name,blob:()=>readExchangeFile(f)})));
+}
+async function exchangeDialog(){
+ const st=await exchangeState();if(exchangeDesktop())EXCHANGE.status=await xcall('exchange:status').catch(()=>null);
+ const f=EXCHANGE.status?.folder,missing=f&&!EXCHANGE.status.exists;
+ const when=t=>t?new Date(t).toLocaleString('zh-CN',{hour12:false}):'还没有';
+ const folderRow=exchangeDesktop()?`<div class="exchange-folder">${icon('folder')}<div><strong>${f?E(f):'还没有选择文件夹'}</strong><small>${missing?'<span class="exchange-error">找不到这个文件夹，请重新选择</span>':f?'上次导出：'+E(when(st.lastExport))+' · 上次导入：'+E(when(st.lastImport)):'第一次导出或导入时会请你选择'}</small></div></div>`:'';
+ dialog('导入导出',`${folderRow}
+  <div class="menu-choices"><button type="button" id="x-export">${icon('download')}<span>一键导出全部笔记<small>${exchangeDesktop()?'每本笔记一个 .inknote 文件，放进上面的文件夹；没改动的会跳过':'打包成一个 .zip 文件下载'}</small></span></button>
+  ${exchangeDesktop()?`<button type="button" id="x-import">${icon('upload')}<span>从文件夹一键导入<small>读取文件夹里的全部 .inknote：新的加入，更新过的替换，本机已是最新的跳过</small></span></button>`:''}
+  <button type="button" id="x-pick">${icon('file')}<span>选择文件导入…<small>选一个或多个 .inknote 文件，或导出的 .zip 压缩包</small></span></button>
+  ${exchangeDesktop()?`<button type="button" id="x-choose">${icon('folder')}<span>${f?'更换文件夹':'选择文件夹'}<small>可以选网盘的同步文件夹（OneDrive、百度网盘、Google 云端硬盘等）或 U 盘</small></span></button>${f&&!missing?`<button type="button" id="x-open">${icon('chevron')}<span>在资源管理器中打开这个文件夹</span></button>`:''}`:''}</div>
+  <p class="help-note">换电脑时：在这台电脑点「一键导出」，把文件夹（或里面的文件）通过网盘、U 盘带到另一台电脑，再在那边「导入」。同一本笔记再次导入会更新它，不会重复；两边都改过的，另存一份「…（导入版本）」，不会丢内容。</p>`);
+ $('#x-export').onclick=()=>run(async()=>{closeModal();await exportAll();});
+ if($('#x-import'))$('#x-import').onclick=()=>run(async()=>{closeModal();await importFromFolder();});
+ $('#x-pick').onclick=()=>{closeModal();$('#merge-input').click();};
+ if($('#x-choose'))$('#x-choose').onclick=()=>run(async()=>{EXCHANGE.status=await xcall('exchange:choose');closeModal();refreshExchangeBadge();if(EXCHANGE.status.folder)toast('导入导出文件夹已设为 '+EXCHANGE.status.folder);});
+ if($('#x-open'))$('#x-open').onclick=()=>run(()=>xcall('exchange:open'));
+}
 const handlers={
  'view':b=>{S.view=b.dataset.value;S.query='';renderLibrary();},
  'layout':b=>{S.list=b.dataset.value==='list';renderLibrary();},
@@ -825,14 +1129,32 @@ const handlers={
  'undo':()=>undo(),'redo':()=>undo(true),'page':b=>goPage(+b.dataset.index),
  'prev':()=>goPage(S.page-1),'next':()=>goPage(S.page+1),'zoom-in':()=>changeZoom(.1),'zoom-out':()=>changeZoom(-.1),'fit':fit,
  'jump':async()=>{const n=await ask('跳到页面',`页码（1–${doc().pages.length}）`,String(S.page+1),{type:'number',ok:'前往'});if(n&&Number.isInteger(+n)&&+n>=1&&+n<=doc().pages.length)await goPage(+n-1);else if(n)toast('请输入有效页码',true);},
- 'split':splitChooser,'scroll-mode':()=>setScrollMode(S.scrollMode==='single'?'continuous':'single'),'split-swap':()=>host()?.swapSplit(),'eraser-mode':b=>{S.eraserMode=b.dataset.value;run(()=>store.setSetting('eraserMode',S.eraserMode));refreshTools();},'sel-copy':()=>copySelection(),'sel-cut':()=>copySelection(true),'sel-dup':()=>{if(copySelection(false,true))pasteClipboard();},'sel-paste':()=>pasteClipboard(),'sel-delete':deleteSelection,
+ 'split':splitChooser,'exchange':()=>exchangeDialog(),'scroll-mode':()=>setScrollMode(S.scrollMode==='single'?'continuous':'single'),'split-swap':()=>host()?.swapSplit(),'eraser-mode':b=>{S.eraserMode=b.dataset.value;run(()=>store.setSetting('eraserMode',S.eraserMode));refreshTools();},'sel-copy':()=>copySelection(),'sel-cut':()=>copySelection(true),'sel-dup':()=>{if(copySelection(false,true))pasteClipboard();},'sel-paste':()=>pasteClipboard(),'sel-delete':deleteSelection,
  'date':insertDate,'comments':toggleComments,'comment-image-add':()=>$('#comment-image-input').click(),'comment-image-open':b=>openCommentImage(b.dataset.commentId,+b.dataset.index),'comment-draft-image-open':b=>openDraftImage(+b.dataset.index),'comment-draft-image-remove':b=>{S.commentDraft?.images.splice(+b.dataset.index,1);renderComments();},'comment-submit':submitComment,'comment-reply':b=>beginReply(b.dataset.id),'comment-collapse':b=>collapseThread(b.dataset.id),'comment-focus':b=>focusDiscussionComment(b.dataset.id),'comment-locate':b=>locateComment(b.dataset.id),'comment-edit':b=>editCommentDialog(b.dataset.id),'comment-delete':b=>deleteCommentDialog(b.dataset.id),'comment-cancel':()=>{S.commentDraft=null;renderComments();},'add-page':addPage,'editor-menu':editorMenu,'export':exportDialog,'find':toggleFind,'find-next':()=>findNext(1),'find-prev':()=>findNext(-1)
 };
 app.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(b&&!b.disabled){e.stopPropagation();run(()=>handlers[b.dataset.action]?.(b));}});
 app.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches('[role=button][data-action]:not(button)')){e.preventDefault();const b=e.target;run(()=>handlers[b.dataset.action]?.(b));}});
 $('#file-input').onchange=e=>run(()=>importFiles([...e.target.files]));
+$('#merge-input').onchange=e=>{const files=[...e.target.files];e.target.value='';run(()=>mergeImport(files.map(f=>({name:f.name,blob:async()=>f})),{explicit:true}));};
 $('#comment-image-input').onchange=e=>run(()=>addCommentImages([...e.target.files]));
-let dragDepth=0;window.addEventListener('dragenter',e=>{if(!EMBED&&e.dataTransfer?.types.includes('Files')){e.preventDefault();dragDepth++;$('#drop-overlay').hidden=false;}});window.addEventListener('dragover',e=>{if(e.dataTransfer?.types.includes('Files'))e.preventDefault();});window.addEventListener('dragleave',e=>{if(--dragDepth<=0){dragDepth=0;$('#drop-overlay').hidden=true;}});window.addEventListener('drop',e=>{e.preventDefault();dragDepth=0;$('#drop-overlay').hidden=true;if(!EMBED&&e.dataTransfer?.files.length)run(()=>importFiles([...e.dataTransfer.files]));});
+let dragDepth=0;
+function dropIntoPage(){return S.active&&page()&&doc().kind!=='discussion';}
+function dropOverlay(show){const o=$('#drop-overlay');o.hidden=!show;if(!show)return;const into=dropIntoPage();o.querySelector('h2').textContent=into?'松开即可放进这一页':'松开即可导入';o.querySelector('p').textContent=into?'Markdown、文本和网页内容会变成带格式的文本框（公式自动排版）；PDF、电子书和 .inknote 备份导入为新笔记':'PDF · EPUB · TXT · FB2 · HTML · CBZ · Markdown · .inknote 备份';}
+window.addEventListener('dragenter',e=>{const t=e.dataTransfer?.types||[];if(t.includes('Files')&&(!EMBED||dropIntoPage())){e.preventDefault();dragDepth++;dropOverlay(true);}});
+window.addEventListener('dragover',e=>{const t=e.dataTransfer?.types||[];if(t.includes('Files')||dropIntoPage()&&(t.includes('text/plain')||t.includes('text/html')))e.preventDefault();});
+window.addEventListener('dragleave',()=>{if(--dragDepth<=0){dragDepth=0;dropOverlay(false);}});
+window.addEventListener('drop',e=>{
+ e.preventDefault();dragDepth=0;dropOverlay(false);const dt=e.dataTransfer;if(!dt)return;
+ const drop=captureDrop(dt),pageFiles=drop.files.filter(f=>/\.(md|markdown|txt)$/i.test(f.name)),others=drop.files.filter(f=>!pageFiles.includes(f));
+ if(dropIntoPage()){
+  const ws=$('#workspace'),r=ws?.getBoundingClientRect(),inside=r&&e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom;
+  const at=inside?point(e):null;
+  if(pageFiles.length||!drop.files.length&&(drop.html||drop.text))run(async()=>{const html=await richFromDrop({...drop,files:pageFiles});if(html){addRichBox(html,at&&{x:Math.max(0,at.x),y:Math.max(0,at.y)});toast(pageFiles.length?'已插入 '+pageFiles.map(f=>f.name).join('、'):'已插入，格式已保留');}});
+  if(others.length){if(EMBED){toast('PDF、电子书请拖到左侧窗口导入',true);return;}run(()=>importFiles(others));}
+  return;
+ }
+ if(!EMBED&&drop.files.length)run(()=>importFiles(drop.files));
+});
 window.addEventListener('keydown',e=>{
  if(modal.open)return;const input=e.target.matches('input:not([type=range]):not([type=checkbox]):not([type=radio]):not([type=color]),textarea,select,[contenteditable=true]');const ctrl=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();
  if(ctrl&&key==='s'){e.preventDefault();finishText();run(async()=>{await flush();toast('已保存在本机');});return;}
@@ -843,12 +1165,30 @@ window.addEventListener('keydown',e=>{
   if(doc().kind==='discussion'){if(ctrl&&key==='z'){e.preventDefault();run(()=>undo(e.shiftKey));}else if(ctrl&&key==='y'){e.preventDefault();run(()=>undo(true));}else if(ctrl&&key==='f'){e.preventDefault();$('#discussion-search')?.focus();}else if(ctrl&&e.shiftKey&&key==='e'){e.preventDefault();run(()=>exportBackup(doc()));}return;}
   if(ctrl&&key==='z'){e.preventDefault();run(()=>undo(e.shiftKey));return;}if(ctrl&&key==='y'){e.preventDefault();run(()=>undo(true));return;}
   if(ctrl&&key==='f'){e.preventDefault();toggleFind();return;}if(ctrl&&e.shiftKey&&key==='e'){e.preventDefault();run(doExport);return;}
-  if(ctrl&&!e.shiftKey){if(key==='c'&&copySelection()){e.preventDefault();return;}if(key==='x'&&copySelection(true)){e.preventDefault();return;}if(key==='v'&&S.clipboard?.length){e.preventDefault();pasteClipboard();return;}if(key==='d'){e.preventDefault();if(copySelection(false,true))pasteClipboard();return;}if(key==='a'){e.preventDefault();selectAll();return;}}
+  if(ctrl&&!e.shiftKey){if(key==='c'||key==='x'||key==='v')return;if(key==='d'){e.preventDefault();if(copySelection(false,true))pasteClipboard();return;}if(key==='a'){e.preventDefault();selectAll();return;}}
   if(!ctrl&&!e.altKey){const tool={p:'pen',h:'marker',e:'eraser',t:'text',r:'rect',l:'lasso',v:'hand',c:'comment'}[key];if(tool){if(tool==='eraser'&&S.tool==='eraser'){S.eraserMode=S.eraserMode==='partial'?'stroke':'partial';run(()=>store.setSetting('eraserMode',S.eraserMode));toast(S.eraserMode==='partial'?'局部擦除：只擦掉经过的部分':'整笔擦除：碰到就删除整条笔迹');}S.tool=tool;S.selection.clear();refreshTools();drawInk();return;}}
   if((key==='delete'||key==='backspace')&&S.selection.size){e.preventDefault();deleteSelection();}
   if(key==='escape'){S.selection.clear();drawInk();}if(key==='pagedown'){e.preventDefault();run(()=>goPage(S.page+1));}if(key==='pageup'){e.preventDefault();run(()=>goPage(S.page-1));}
  }
 });
+const CLIP_TYPE='application/x-inknote-items';
+function canvasFocus(e){return S.active&&page()&&doc().kind!=='discussion'&&!modal.open&&!e.target.closest?.('input,textarea,select,[contenteditable=true],.comments-panel,.pdf-find');}
+document.addEventListener('copy',e=>{if(!canvasFocus(e)||!S.selection.size)return;const items=selectedItems();e.preventDefault();S.clipboard=structuredClone(items);
+ e.clipboardData.setData(CLIP_TYPE,JSON.stringify(items));
+ const text=items.map(a=>a.type==='text'?a.text:a.type==='rich'?(a.plain||richPlainText(a.html)):'').filter(Boolean).join('\n\n');if(text)e.clipboardData.setData('text/plain',text);
+ const html=items.map(a=>a.type==='rich'?a.html:a.type==='text'?plainToHtml(a.text):'').join('');if(html)e.clipboardData.setData('text/html',html);
+ toast(`已复制 ${items.length} 项，Ctrl V 粘贴`);});
+document.addEventListener('cut',e=>{if(!canvasFocus(e)||!S.selection.size)return;e.preventDefault();copySelection(true,true);e.clipboardData.setData(CLIP_TYPE,JSON.stringify(S.clipboard));toast('已剪切');});
+document.addEventListener('paste',e=>{
+ if(!canvasFocus(e))return;const dt=e.clipboardData;let items=null;
+ try{const raw=dt.getData(CLIP_TYPE);if(raw)items=JSON.parse(raw);}catch{}
+ if(Array.isArray(items)&&items.length){e.preventDefault();S.clipboard=items.filter(a=>['pen','marker','text','rect','rich'].includes(a?.type));if(S.clipboard.some(a=>a.type==='rich'))S.clipboard=S.clipboard.map(a=>a.type==='rich'?{...a,html:sanitizeHtml(a.html)}:a);pasteClipboard();return;}
+ const html=dt.getData('text/html'),text=dt.getData('text/plain');
+ if(html&&html.trim()||text&&text.trim()){e.preventDefault();addRichBox(html&&html.trim()?sanitizeHtml(html):textToHtml(text),lastCanvasPoint());toast('已粘贴为文本框，格式已保留');return;}
+ if(S.clipboard?.length){e.preventDefault();pasteClipboard();}
+});
+let lastPointer=null;window.addEventListener('pointermove',e=>{lastPointer={clientX:e.clientX,clientY:e.clientY};},{passive:true});
+function lastCanvasPoint(){const ws=$('#workspace');if(!lastPointer||!ws||!page())return null;const r=ws.getBoundingClientRect();if(lastPointer.clientX<r.left||lastPointer.clientX>r.right||lastPointer.clientY<r.top||lastPointer.clientY>r.bottom)return null;const q=point(lastPointer);if(!page().infinite&&(q.x<0||q.y<0||q.x>page().width-40||q.y>page().height-20))return null;return q;}
 window.addEventListener('beforeunload',e=>{finishText();if(!closing&&(pending.size||saving)){void flush();e.preventDefault();e.returnValue='';}});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')run(flush);});
 function makeGuide(){return{id:uid(),title:'把想法，写下来',kind:'notebook',color:'olive',guide:true,folder:'个人',createdAt:Date.now(),updatedAt:Date.now(),favorite:true,lastPage:0,pages:[0,1,2].map(i=>({...newPage('guide'),guide:i}))};}
@@ -861,23 +1201,23 @@ async function initEmbedded(){
   if(!S.docs.some(d=>d.id===EMBED_DOC))throw new Error('这本笔记已不存在。');
   try{const h=host(),st=h?.toolState?.();if(st)applyTools(st);document.body.classList.toggle('global-tools',!!h?.hasToolbar?.());}catch{}
   await openDoc(EMBED_DOC);await fitIfOverflow();
- }catch(e){view.innerHTML=`<div class="boot boot-error"><span class="brand-mark boot-logo cookie" aria-hidden="true">墨</span><h3>无法在分屏中打开</h3><p>${E(e.message)}</p><button class="btn tonal" data-action="home">${icon('close')}关闭分屏</button></div>`;}
+ }catch(e){view.innerHTML=`<div class="boot boot-error"><img class="brand-logo boot-logo" src="icon.svg" alt="" aria-hidden="true"><h3>无法在分屏中打开</h3><p>${E(e.message)}</p><button class="btn tonal" data-action="home">${icon('close')}关闭分屏</button></div>`;}
 }
 async function init(){
  S.theme=applyTheme(DEFAULT_THEME,themeChanged).theme;themeChanged();
  try{new ResizeObserver(()=>document.body.classList.toggle('narrow-editor',view.clientWidth-(document.body.classList.contains('caption-space')?150:0)<=700)).observe(view);}catch{}
  if(EMBED)return initEmbedded();
  window.__inknoteHost={toolsChanged:st=>applyTools(st),toolState:()=>toolState(),hasToolbar:()=>!!document.querySelector('.toolbar.global'),download:(bytes,name,mime)=>download(bytes,name,mime),closeSplit:()=>run(closeSplit),swapSplit:()=>run(swapSplit),docSaved:id=>run(()=>reloadDoc(id)),toast:(m,e)=>toast(m,e)};
- view.innerHTML='<div class="boot"><span class="brand-mark boot-logo cookie" aria-hidden="true">墨</span><p>正在打开墨页…</p></div>';
+ view.innerHTML='<div class="boot"><img class="brand-logo boot-logo" src="icon.svg" alt="" aria-hidden="true"><p>正在打开墨页…</p></div>';
  try{S.docs=await store.all();S.folders=await store.setting('folders')||S.folders;S.penOnly=await store.setting('penOnly')||false;await loadToolSettings();useTheme(await store.setting('theme')||DEFAULT_THEME,false);
   if(!await store.setting('initialized')){const guide=makeGuide(),learning={id:uid(),title:'每周学习计划',kind:'notebook',color:'sand',folder:'学习',createdAt:Date.now(),updatedAt:Date.now()-300000,lastPage:0,pages:[makeCanvasPage('ruled',false,'plain',{title:'每周学习计划'}),makeCanvasPage('ruled',false,'plain')]},ideas={id:uid(),title:'灵感与随记',kind:'notebook',color:'blue',folder:'个人',createdAt:Date.now(),updatedAt:Date.now()-3600000,lastPage:0,pages:[makeCanvasPage('dot',false,'plain',{title:'灵感与随记'})]};
     learning.pages[0].annotations=[{id:uid(),type:'text',x:52,y:106,size:14,w:400,h:140,color:'#5f5a68',text:'这一周，给自己一点专注的时间。\n\n周一 / 阅读并整理一份课件\n\n周三 / 写下三个值得追问的问题\n\n周五 / 回顾本周的收获与想法'}];
     ideas.pages[0].annotations=[{id:uid(),type:'text',x:44,y:104,size:24,w:400,h:36,color:'#4f6b76',text:'好想法，值得被记住。'},{id:uid(),type:'text',x:46,y:150,size:13,w:400,h:40,color:'#7c8d92',text:'给突然出现的灵感，留一个位置。'}];
-    for(const d of [guide,learning,ideas]){await store.save(d);S.docs.push(d);}await store.setSetting('initialized',true);
+    for(const d of [guide,learning,ideas]){d.sample=d.updatedAt;await store.save(d);S.docs.push(d);}await store.setSetting('initialized',true);
   }
   renderLibrary();
   if(window.desktop){document.body.classList.add('desktop');$('#windowbar').hidden=false;document.querySelectorAll('[data-window]').forEach(b=>b.onclick=()=>window.desktop.windowAction(b.dataset.window));window.desktop.onBeforeClose(async()=>{try{finishText();await flush();if(S.split)await closeSplit({reload:false});closing=true;window.desktop.closeReady(true);}catch(e){failure(e);window.desktop.closeReady(false);}});}
- }catch(e){window.desktop?.reportStartupError(e?.message||String(e));view.innerHTML=`<div class="boot boot-error"><span class="brand-mark boot-logo cookie" aria-hidden="true">墨</span><h3>暂时无法打开本机笔记</h3><p>${E(e.message)}</p><p>请关闭后重新打开墨页。如仍无法启动，请保留错误信息和笔记数据。</p></div>`;failure(e);}
+ }catch(e){window.desktop?.reportStartupError(e?.message||String(e));view.innerHTML=`<div class="boot boot-error"><img class="brand-logo boot-logo" src="icon.svg" alt="" aria-hidden="true"><h3>暂时无法打开本机笔记</h3><p>${E(e.message)}</p><p>请关闭后重新打开墨页。如仍无法启动，请保留错误信息和笔记数据。</p></div>`;failure(e);}
 }
 run(init);
 

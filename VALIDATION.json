@@ -1,6 +1,6 @@
 {
-  "version": "0.5.0",
-  "date": "2026-11-07",
+  "version": "0.6.1",
+  "date": "2026-11-08",
   "ui": {
     "style": "Material You / Material 3 Expressive",
     "dynamic_color": "Material Color Utilities 0.4.0, spec 2025",
@@ -27,11 +27,11 @@
     "paper_and_pdf_export_theme_independent": true
   },
   "application_tests": {
-    "passed": 39,
+    "passed": 43,
     "failed": 0,
-    "new": "tests/paper.test.mjs (4 tests: line spacing, title area geometry incl. legacy pages, Asia/Shanghai date and time, margin line and title actually drawn on A4 and infinite paper)"
+    "new_in_0_6_0": "tests/bundle.test.mjs (ZIP container write/read/CRC rejection), EPUB publisher-DRM detection vs. font obfuscation; startup test stubs desktop/google.cjs"
   },
-  "javascript_syntax_and_offline_assets": "passed: 28 modules, fonts (83-icon Material Symbols subset) and colour library referenced by HTML/CSS present",
+  "javascript_syntax_and_offline_assets": "passed: 32 modules; fonts (89-icon Material Symbols subset), KaTeX CSS and woff2 fonts, markdown-it/KaTeX bundle and colour library present",
   "browser_end_to_end": {
     "tool": "Playwright Chromium against scripts/serve.mjs",
     "workflow_checks_passed": 49,
@@ -74,7 +74,36 @@
         "single page: wheel past bottom/top flips, opens at top/bottom, scrolling inside a page does not flip, mode remembered",
         "split view: one window-wide toolbar, right pane toolbar hidden, tool/colour/eraser mode shared both ways, shortcut in right pane updates it, docks to the window edge, returns to the page area when split closes, nothing left on the library"
       ]
-    }
+    },
+    "suites_0_6_0": {
+      "workflow (func)": 49,
+      "features": 66,
+      "scroll modes": 26,
+      "rich text boxes": 22,
+      "formatted posts": 7,
+      "themes": 12,
+      "old-notes compatibility": 10,
+      "all_failed": 0
+    },
+    "rich_text_checks": [
+      "text tool box with format bar",
+      "'# ', '- ', '1. ', '> ' Markdown shortcuts",
+      "$…$ typed becomes a typeset formula",
+      "bold/colour from the format bar and undo",
+      "move by top bar, resize by right edge",
+      "paste of web/AI HTML keeps heading, bold, colour and KaTeX formulas; scripts removed",
+      "dropped .md: headings, bold, display/inline LaTeX, lists, quote, code without math",
+      "box placed at the drop point",
+      "Ctrl-drag duplicates",
+      "copy between notes keeps formatting",
+      "thumbnail, PDF export and backup round trip include text boxes"
+    ],
+    "protected_pdf_checks": [
+      "owner-password (permissions) PDF opens and annotates; export refused with explanation when modify+annotate are forbidden",
+      "annotate-allowed owner-password PDF exports via per-page raster",
+      "open-password PDF prompts and exports",
+      "70 MB PDF round-trips through the v2 ZIP backup"
+    ]
   },
   "old_notes_compatibility": {
     "method": "notes created with the original 0.3.3 UI, then the 0.5.0 UI opened on the same origin and browser profile",
@@ -106,12 +135,13 @@
       "note and strokes persist across restart"
     ],
     "window_maximize_behaviour": "not verifiable without a window manager; IPC path verified",
-    "checks_passed": 17
+    "checks_passed": 17,
+    "startup_report_version": "0.6.1"
   },
   "offline_installer": {
-    "file": "InkNote-Setup-0.5.0-offline.exe",
-    "bytes": 161109341,
-    "sha256": "06a461900c62ff1d90fe91bce856e9c2d55e30de6f8b8ae1ad7665c2740978f7",
+    "file": "InkNote-Setup-0.6.1-offline.exe",
+    "bytes": 161578691,
+    "sha256": "dc013b69b3d3ca01e873562af008593cb5fbea840365e87238f345b4144731d4",
     "complete_runtime_embedded": true,
     "runtime": {
       "version": "45.2.3",
@@ -131,23 +161,27 @@
     "contains_network_download_code": false,
     "windows_x64_gui_pe_and_native_uninstaller": "checked",
     "archive_integrity_and_corruption_rejection": "passed",
-    "windows_execution_verified": false
+    "windows_execution_verified": false,
+    "icon_resource": "9 sizes 16–256 px (pefile checked)"
   },
   "uninstaller": {
     "file": "Uninstall-InkNote.exe",
-    "bytes": 21440,
-    "sha256": "a75eedd3d7f39d6bd50771d8a3e6110922ac63618e2477e0c0c52d5a9ddae87a",
+    "bytes": 63488,
+    "sha256": "6a79571c8d54f251c93d19cead7983a801b66bd1165681178a42c23c736a7a86",
     "native_gui": true,
-    "simulated_filesystem_and_registry_tests": "passed ASan/UBSan; legacy and current modes, incl. 0.5.0 path and manifest recognition",
+    "simulated_filesystem_and_registry_tests": "passed ASan/UBSan; legacy and current modes, incl. 0.6.1 path and manifest recognition (0.6.2 rejected)",
     "recognized_versions": [
       "0.2.0",
       "0.3.1",
       "0.3.2",
       "0.3.3",
       "0.4.0",
-      "0.5.0"
+      "0.5.0",
+      "0.6.0",
+      "0.6.1"
     ],
-    "preserves_notes": true
+    "preserves_notes": true,
+    "icon_resource": true
   },
   "windows_execution_verified": false,
   "complete_offline_installer_built": true,
@@ -170,5 +204,40 @@
     "'rename notebook' from the ⋮ menu was cancelled by the previous dialog's late close event",
     "segmented buttons in dialogs (e.g. 纸张范围) rendered broken in 0.4.0",
     "pages zoomed wider than the window could not be scrolled to their left edge"
+  ],
+  "features_0_6_0": [
+    "Google-style app icon (window, taskbar, installer, uninstaller)",
+    "formatted text boxes: format bar, Markdown shortcuts, KaTeX formulas, move/resize",
+    "paste/drop keeps formatting; .md files render Markdown + LaTeX",
+    "Ctrl/Alt drag duplicates; system clipboard gets text and HTML",
+    "formatted posts: main floor, floors and nested replies",
+    "1 GB file limit; ZIP (v2) backups for originals over 48 MB; chunked desktop save",
+    "permission-protected PDFs open; open-password prompt; clear message for publisher DRM in PDF and EPUB"
+  ],
+  "fixes_0_6_0": [
+    "new nested reply could be hidden behind the sticky reply box",
+    "post previews on library cards showed raw Markdown"
+  ],
+  "import_export_folder": {
+    "tested_with": "two Electron 45.2.3 profiles sharing one folder (as a cloud-drive sync folder would be)",
+    "checks_passed": 27,
+    "checks_failed": 0,
+    "covers": [
+      "Google sign-in, sync and Drive export removed",
+      "one click exports each note as <title>-<id8>.inknote; untouched samples skipped; no temporary files",
+      "re-export skips unchanged notes; importing own folder changes nothing",
+      "second computer imports all notes with the same ids; PDF opens; importing twice does not duplicate",
+      "an edit exported from B replaces the note on A",
+      "both edited: file imported as a '（导入版本）' copy, local note untouched",
+      "rename replaces the old file; deleting a note removes its file on export",
+      "folder import does not resurrect a note deleted here; choosing the file explicitly does",
+      "paths outside the folder, other file types and unknown channels refused; missing folder reported"
+    ],
+    "browser": "export all as one .zip; .zip import in another profile"
+  },
+  "changes_0_6_1": [
+    "removed Google OAuth sign-in and Drive sync (needed a per-user Google Cloud client ID)",
+    "added one-click import/export folder with id-based merge, conflict copies and deletion handling",
+    "browser build exports/imports one .zip"
   ]
 }

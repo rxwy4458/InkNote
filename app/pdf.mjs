@@ -11,7 +11,14 @@ export async function readPdf(bytes,passwordPrompt){
  const task=pdfjs.getDocument({data:new Uint8Array(bytes),cMapUrl:base+'cmaps/',cMapPacked:true,standardFontDataUrl:base+'standard_fonts/',wasmUrl:base+'wasm/',iccUrl:base+'iccs/',isEvalSupported:false,enableXfa:false});
  let password;
  task.onPassword=(update,reason)=>{if(!passwordPrompt){task.destroy();return;}Promise.resolve(passwordPrompt(reason===2)).then(p=>{if(p===null)task.destroy();else{password=p;update(p);}}).catch(()=>task.destroy());};
- const pdf=await task.promise;return {pdf,password};
+ let pdf;
+ try{pdf=await task.promise;}
+ catch(e){
+  // Publisher DRM (Adobe ADEPT, FileOpen, LCP…) is not the PDF standard password protection: say so plainly.
+  if(/unknown (crypt|encryption)|unsupported encryption|encryption.*not supported|EBX_HANDLER|Adobe\.APS|FOPN|lcp/i.test(String(e?.message)))throw new Error('这份 PDF 使用了出版方的版权保护（DRM），只能在指定的阅读软件中打开，墨页无法读取。');
+  throw e;
+ }
+ return {pdf,password};
 }
 export async function documentPdf(doc,passwordPrompt){
  if(!doc.pages.some(p=>p.sourceIndex!==null))return null;
@@ -35,7 +42,7 @@ export async function pdfTextMatches(doc,query,passwordPrompt){
  const result=[];const q=normalize(query);
  for(let i=0;i<doc.pages.length;i++){
    const p=doc.pages[i];let text='';if(p.sourceIndex!==null){const page=await pdf.getPage(p.sourceIndex+1);text=(await page.getTextContent()).items.map(t=>t.str).join(' ');}
-   text+=' '+p.annotations.filter(a=>a.type==='text').map(a=>a.text).join(' ');
+   text+=' '+p.annotations.map(a=>a.type==='text'?a.text:a.type==='rich'?a.plain||'':'').join(' ');
    if(p.reading)text+=' '+p.reading.blocks.filter(b=>b.type==='line').map(b=>b.text).join('');
    text+=' '+(p.comments||[]).map(n=>n.body).join(' ');
    if(normalize(text).includes(q))result.push(i);
