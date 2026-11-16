@@ -137,7 +137,12 @@ class InkSurface(context: Context) : FrameLayout(context) {
         worldToView.invert(viewToWorld)
         val paperBounds = RectF(0f, 0f, page.width, page.height)
         worldToView.mapRect(paperBounds)
-        ink.maskPath = Path().apply { addRect(paperBounds, Path.Direction.CW) }
+        // Ink's maskPath excludes ink. Exclude the area OUTSIDE the paper, leaving a hole inside it.
+        ink.maskPath = Path().apply {
+            fillType = Path.FillType.EVEN_ODD
+            addRect(0f, 0f, width.toFloat(), height.toFloat(), Path.Direction.CW)
+            addRect(paperBounds, Path.Direction.CW)
+        }
         content.invalidate()
     }
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) { super.onSizeChanged(w, h, oldw, oldh); fitted = false; fitPage() }

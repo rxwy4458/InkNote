@@ -172,6 +172,38 @@ class NativeInkTest {
         assertEquals(5, result.single().stroke.inputs.size)
     }
 
+    @Test fun liveInkIsVisibleBeforeThePenIsLifted() {
+        val view = surface()
+        val location = IntArray(2)
+        activity.scenario.onActivity { view.inkColor = 0xffda1262.toInt(); view.nibSize = 6f; view.getLocationOnScreen(location) }
+        val x = view.width / 2f; val y = view.height / 2f + 17
+        val t = SystemClock.uptimeMillis()
+        val ids = intArrayOf(7); val types = intArrayOf(MotionEvent.TOOL_TYPE_STYLUS)
+        send(view, t, t, MotionEvent.ACTION_DOWN, ids, types, floatArrayOf(x - 50), floatArrayOf(y), floatArrayOf(.8f))
+        SystemClock.sleep(8)
+        send(view, t, SystemClock.uptimeMillis(), MotionEvent.ACTION_MOVE, ids, types, floatArrayOf(x + 70), floatArrayOf(y), floatArrayOf(.8f))
+        var visible = false
+        val deadline = SystemClock.uptimeMillis() + 5000
+        try {
+            while (!visible && SystemClock.uptimeMillis() < deadline) {
+                val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+                var colored = 0
+                val sx = location[0] + x.toInt(); val sy = location[1] + y.toInt()
+                for (px in (sx - 45)..(sx + 60) step 2) for (py in (sy - 12)..(sy + 12)) {
+                    if (px !in 0 until bitmap.width || py !in 0 until bitmap.height) continue
+                    val color = bitmap.getPixel(px, py)
+                    if (android.graphics.Color.red(color) > 140 && android.graphics.Color.green(color) < 90 && android.graphics.Color.blue(color) < 160) colored++
+                }
+                bitmap.recycle(); visible = colored > 8
+                if (!visible) SystemClock.sleep(32)
+            }
+        } finally {
+            send(view, t, SystemClock.uptimeMillis(), if (visible) MotionEvent.ACTION_UP else MotionEvent.ACTION_CANCEL, ids, types, floatArrayOf(x + 70), floatArrayOf(y), floatArrayOf(.8f))
+        }
+        assertTrue("Real-time ink must be visible while the stylus is still down", visible)
+        awaitHandoff(view)
+    }
+
     @Test fun nativeLibraryAndEditorAreUsable() {
         val device = UiDevice.getInstance(instrumentation)
         assertTrue(device.wait(Until.hasObject(By.text("新建画布")), 15000))
