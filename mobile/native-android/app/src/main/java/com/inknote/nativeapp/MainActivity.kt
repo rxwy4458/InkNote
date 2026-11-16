@@ -51,9 +51,13 @@ class MainActivity : ComponentActivity() {
             )) { NativeApp(this) }
         }
     }
+    override fun onResume() {
+        super.onResume()
+        window.decorView.post { applyRefreshMode(highRefresh) }
+    }
     fun applyRefreshMode(enabled: Boolean) {
         highRefresh = enabled
-        val d = display ?: return
+        val d = window.decorView.display ?: return
         val current = d.mode
         val best = d.supportedModes.filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
             .maxByOrNull { it.refreshRate } ?: current
@@ -195,7 +199,7 @@ private fun NativeApp(activity: MainActivity, model: NoteModel = viewModel()) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
             Text("书写设置", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text("${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE}", style = MaterialTheme.typography.bodySmall)
-            Text("当前屏幕 ${activity.display?.refreshRate?.toInt() ?: 0} Hz", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+            Text("当前屏幕 ${activity.window.decorView.display?.refreshRate?.toInt() ?: 0} Hz", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
             SettingSwitch("仅用笔书写", "手指移动页面，两指缩放", penOnly) { penOnly = it }
             SettingSwitch("笔迹预测", "提前显示预测轨迹；保存真实采样点", prediction) { prediction = it }
             var highRefresh by remember { mutableStateOf(activity.highRefresh) }

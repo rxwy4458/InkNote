@@ -124,7 +124,7 @@ class InkSurface(context: Context) : FrameLayout(context) {
         if (!fitted && width > 0 && height > 0) fitPage() else content.invalidate()
     }
 
-    fun showPdf(bitmap: Bitmap?) { paperBitmap = bitmap; content.invalidate() }
+    fun showPdf(bitmap: Bitmap?) { if (paperBitmap !== bitmap) { paperBitmap = bitmap; content.invalidate() } }
     fun undo() { if (!hasPendingInput) history.undo(committed)?.let(::replaceStrokes) }
     fun redo() { if (!hasPendingInput) history.redo(committed)?.let(::replaceStrokes) }
     fun clearPage() { if (!hasPendingInput && committed.isNotEmpty()) { history.record(committed); replaceStrokes(emptyList()) } }

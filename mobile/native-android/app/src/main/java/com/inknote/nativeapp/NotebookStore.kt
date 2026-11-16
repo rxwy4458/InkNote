@@ -113,8 +113,9 @@ class NotebookStore(val root: File) {
         val index = page.pdfPage ?: return null
         return ParcelFileDescriptor.open(File(root, requireNotNull(note.pdfFile)), ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
             PdfRenderer(fd).use { pdf -> pdf.openPage(index).use { source ->
-                val width = targetWidth.coerceIn(256, 2048)
-                val height = (width * source.height.toFloat() / source.width).toInt().coerceIn(1, 4096)
+                val scale = minOf(targetWidth.coerceIn(256, 2048).toFloat() / source.width, 4096f / source.height)
+                val width = (source.width * scale).toInt().coerceAtLeast(1)
+                val height = (source.height * scale).toInt().coerceAtLeast(1)
                 Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
                     it.eraseColor(Color.WHITE)
                     source.render(it, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
