@@ -38,17 +38,17 @@ class NativeInkTest {
     }
 
     private fun send(view: InkSurface, down: Long, time: Long, action: Int, ids: IntArray,
-                     types: IntArray, xs: FloatArray, ys: FloatArray, pressures: FloatArray) {
+                     types: IntArray, xs: FloatArray, ys: FloatArray, pressures: FloatArray, flags: Int = 0) {
         val properties = ids.indices.map { i -> MotionEvent.PointerProperties().apply { id = ids[i]; toolType = types[i] } }.toTypedArray()
         val coords = ids.indices.map { i -> MotionEvent.PointerCoords().apply { x = xs[i]; y = ys[i]; pressure = pressures[i]; size = .1f } }.toTypedArray()
-        val event = MotionEvent.obtain(down, time, action, ids.size, properties, coords, 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_STYLUS, 0)
+        val event = MotionEvent.obtain(down, time, action, ids.size, properties, coords, 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_STYLUS, flags)
         activity.scenario.onActivity { view.dispatchTouchEvent(event) }
         event.recycle()
     }
 
     private fun stroke(view: InkSurface, cancel: Boolean = false): List<InkRecord> {
         val latch = CountDownLatch(1); var result = emptyList<InkRecord>()
-        activity.scenario.onActivity { view.onChange = { result = it; latch.countDown() } }
+        activity.scenario.onActivity { val original = view.onChange; view.onChange = { original(it); result = it; latch.countDown() } }
         val down = SystemClock.uptimeMillis(); val x = view.width / 2f; val y = view.height / 2f
         val types = intArrayOf(MotionEvent.TOOL_TYPE_STYLUS)
         for (i in 0..4) send(view, down, down + i * 8,
@@ -91,7 +91,7 @@ class NativeInkTest {
         send(view, t, t, MotionEvent.ACTION_DOWN, intArrayOf(23), intArrayOf(finger), floatArrayOf(x + 100), floatArrayOf(y), floatArrayOf(.7f))
         send(view, t, t + 8, MotionEvent.ACTION_POINTER_DOWN or (1 shl 8), intArrayOf(23, 7), intArrayOf(finger, pen), floatArrayOf(x + 100, x), floatArrayOf(y, y), floatArrayOf(.7f, .3f))
         send(view, t, t + 16, MotionEvent.ACTION_MOVE, intArrayOf(7, 23), intArrayOf(pen, finger), floatArrayOf(x + 16, x + 100), floatArrayOf(y + 8, y), floatArrayOf(.6f, .7f))
-        send(view, t, t + 24, MotionEvent.ACTION_POINTER_UP or (1 shl 8), intArrayOf(7, 23), intArrayOf(pen, finger), floatArrayOf(x + 16, x + 100), floatArrayOf(y + 8, y), floatArrayOf(.6f, .7f))
+        send(view, t, t + 24, MotionEvent.ACTION_POINTER_UP or (1 shl 8), intArrayOf(7, 23), intArrayOf(pen, finger), floatArrayOf(x + 16, x + 100), floatArrayOf(y + 8, y), floatArrayOf(.6f, .7f), MotionEvent.FLAG_CANCELED)
         send(view, t, t + 32, MotionEvent.ACTION_UP, intArrayOf(7), intArrayOf(pen), floatArrayOf(x + 32), floatArrayOf(y + 16), floatArrayOf(.8f))
         assertTrue(latch.await(20, TimeUnit.SECONDS)); assertEquals(1, result.size)
         assertEquals(InputToolType.STYLUS, result.single().stroke.inputs.toolType)
@@ -129,6 +129,23 @@ class NativeInkTest {
             val bitmap = requireNotNull(store.pdfBitmap(pdf, pdf.pages.single(), 512))
             assertTrue(bitmap.width > 0); bitmap.recycle()
         } finally { folder.deleteRecursively() }
+    }
+
+    @Test fun densePageAcceptsANewStrokeWithoutLosingHistory() {
+        val records = (0 until 1000).map { i ->
+            val x = 24f + (i % 40) * 13f; val y = 48f + (i / 40) * 24f
+            val batch = MutableStrokeInputBatch().apply {
+                add(InputToolType.STYLUS, x, y, 0, pressure = .5f)
+                add(InputToolType.STYLUS, x + 8f, y + 6f, 8, pressure = .7f)
+            }
+            InkRecord(kind = Tool.PEN, stroke = Stroke(makeBrush(Tool.PEN, 0xff333333.toInt(), 1.4f), batch))
+        }
+        val view = surface()
+        activity.scenario.onActivity { view.showPage(NotePage(strokes = records)) }
+        instrumentation.waitForIdleSync()
+        val all = stroke(view)
+        assertEquals(1001, all.size)
+        assertEquals(records.map { it.id }, all.take(1000).map { it.id })
     }
 
     @Test fun nativeLibraryAndEditorAreUsable() {
