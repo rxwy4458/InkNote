@@ -2,8 +2,10 @@
 
 面向一加 Pad 2 Pro 的原生迁移第一阶段：验证实际书写体验，再迁移完整产品。
 
-界面为 Kotlin + Compose，画布为 Android Jetpack Ink 1.0.0 的 `InProgressStrokesView`。
+界面为 Kotlin + Compose，画布为 Android Jetpack Ink 的 `InProgressStrokesView`。
 应用不使用 WebView，也不加载 HTML、CSS 或 JavaScript。
+
+测试依赖锁定为 Ink 1.1.0-alpha11 与 graphics-core 1.1.0-beta01，包含上游窗口/渲染线程生命周期修复。这些是预发布组件，需通过模拟器与一加真机验证后再决定正式版依赖。
 
 ## 已实现
 

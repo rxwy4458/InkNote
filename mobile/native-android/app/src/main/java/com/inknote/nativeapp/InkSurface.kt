@@ -34,6 +34,7 @@ class InkSurface(context: Context) : FrameLayout(context) {
     private val raster = HistoryRaster()
     private var historyTiles: List<HistoryTile> = emptyList()
     private var historyReady = false
+    private var disposed = false
     private val waitingForHandoff = linkedSetOf<InProgressStrokeId>()
     private val content = object : View(context) {
         override fun onDraw(canvas: Canvas) {
@@ -82,6 +83,7 @@ class InkSurface(context: Context) : FrameLayout(context) {
         contentDescription = "原生书写画布"
         ink.addFinishedStrokesListener(object : InProgressStrokesFinishedListener {
             override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
+                if (disposed) return
                 val added = pending.keys.filter { it in strokes }.map { id ->
                     InkRecord(kind = requireNotNull(pending.remove(id)), stroke = requireNotNull(strokes[id]))
                 }
@@ -255,6 +257,7 @@ class InkSurface(context: Context) : FrameLayout(context) {
     }
     override fun performClick(): Boolean { super.performClick(); return true }
     private fun rebuildHistory() {
+        if (disposed) return
         historyReady = false
         raster.request(page, committed) { tiles ->
             historyTiles = tiles
@@ -275,7 +278,13 @@ class InkSurface(context: Context) : FrameLayout(context) {
         super.onWindowVisibilityChanged(visibility)
         if (visibility == View.VISIBLE) post { completeHandoffIfVisible() }
     }
-    override fun onDetachedFromWindow() { cancelInput(); raster.close(); super.onDetachedFromWindow() }
+    override fun onDetachedFromWindow() {
+        disposed = true
+        ink.clearFinishedStrokesListeners()
+        cancelInput()
+        raster.close()
+        super.onDetachedFromWindow()
+    }
 }
 
 /** Eraser tests the swept segment, including fast eraser moves between delivered samples. */
