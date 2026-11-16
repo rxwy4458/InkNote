@@ -83,7 +83,8 @@ jobs:
           else
             UNSIGNED=mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk
             cp "$UNSIGNED" "dist/InkNote-Android-$VERSION-unsigned.apk"
-            "$APKSIGNER" sign --ks "$HOME/.android/debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out "$RUNNER_TEMP/emulator-release.apk" "$UNSIGNED"
+            keytool -genkeypair -keystore "$RUNNER_TEMP/emulator-test.jks" -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 2 -dname 'CN=Android Emulator Test'
+            "$APKSIGNER" sign --ks "$RUNNER_TEMP/emulator-test.jks" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out "$RUNNER_TEMP/emulator-release.apk" "$UNSIGNED"
             echo "INKNOTE_EMULATOR_RELEASE_APK=$RUNNER_TEMP/emulator-release.apk" >> "$GITHUB_ENV"
             TOOLS=$(dirname "$APKSIGNER")
             mkdir -p signing-tools/lib
