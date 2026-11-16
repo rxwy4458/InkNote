@@ -46,7 +46,7 @@ class NativeInkTest {
         event.recycle()
     }
 
-    private fun stroke(view: InkSurface, cancel: Boolean = false): List<InkRecord> {
+    private fun stroke(view: InkSurface, cancel: Boolean = false, afterUp: () -> Unit = {}): List<InkRecord> {
         val latch = CountDownLatch(1); var result = emptyList<InkRecord>()
         activity.scenario.onActivity { val original = view.onChange; view.onChange = { original(it); result = it; latch.countDown() } }
         val down = SystemClock.uptimeMillis(); val x = view.width / 2f; val y = view.height / 2f
@@ -54,6 +54,7 @@ class NativeInkTest {
         for (i in 0..4) send(view, down, down + i * 8,
             when (i) { 0 -> MotionEvent.ACTION_DOWN; 4 -> if (cancel) MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP; else -> MotionEvent.ACTION_MOVE },
             intArrayOf(7), types, floatArrayOf(x + i * 8), floatArrayOf(y + i * 4), floatArrayOf(.2f + i * .15f))
+        afterUp()
         if (cancel) assertFalse("Cancelled stroke must never be committed", latch.await(800, TimeUnit.MILLISECONDS))
         else assertTrue("Stroke handoff did not complete", latch.await(20, TimeUnit.SECONDS))
         awaitHandoff(view)
@@ -159,6 +160,16 @@ class NativeInkTest {
         val all = stroke(view)
         assertEquals(1001, all.size)
         assertEquals(records.map { it.id }, all.take(1000).map { it.id })
+    }
+
+    @Test fun backgroundDuringStrokeHandoffDoesNotLoseInk() {
+        val view = surface()
+        val result = stroke(view, afterUp = {
+            activity.scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+            activity.scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+        })
+        assertEquals(1, result.size)
+        assertEquals(5, result.single().stroke.inputs.size)
     }
 
     @Test fun nativeLibraryAndEditorAreUsable() {

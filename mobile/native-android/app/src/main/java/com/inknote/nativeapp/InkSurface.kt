@@ -33,6 +33,7 @@ class InkSurface(context: Context) : FrameLayout(context) {
     private val viewToWorld = Matrix()
     private val raster = HistoryRaster()
     private var historyTiles: List<HistoryTile> = emptyList()
+    private var historyReady = false
     private val waitingForHandoff = linkedSetOf<InProgressStrokeId>()
     private val content = object : View(context) {
         override fun onDraw(canvas: Canvas) {
@@ -254,15 +255,25 @@ class InkSurface(context: Context) : FrameLayout(context) {
     }
     override fun performClick(): Boolean { super.performClick(); return true }
     private fun rebuildHistory() {
+        historyReady = false
         raster.request(page, committed) { tiles ->
             historyTiles = tiles
+            historyReady = true
             content.invalidate()
-            if (waitingForHandoff.isNotEmpty()) {
-                ink.removeFinishedStrokes(waitingForHandoff.toSet())
-                waitingForHandoff.clear()
-            }
+            completeHandoffIfVisible()
             if (!fitted) fitPage()
         }
+    }
+    private fun completeHandoffIfVisible() {
+        if (historyReady && waitingForHandoff.isNotEmpty() && windowVisibility == View.VISIBLE && isAttachedToWindow) {
+            content.invalidate()
+            ink.removeFinishedStrokes(waitingForHandoff.toSet())
+            waitingForHandoff.clear()
+        }
+    }
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        if (visibility == View.VISIBLE) post { completeHandoffIfVisible() }
     }
     override fun onDetachedFromWindow() { cancelInput(); raster.close(); super.onDetachedFromWindow() }
 }
