@@ -26,7 +26,18 @@ await device.shell(`monkey -p ${PKG} -c android.intent.category.LAUNCHER 1`);
 const webview = await device.webView({ pkg: PKG }, { timeout: 90000 });
 const page = await webview.page();
 const errors = [];
-page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+// Capacitor logs rejected native calls even when native.mjs handles them. These two
+// probes are expected on a clean installation and before creating the first PDF.
+const expectedFilesystemMessages = [
+  `'readdir' failed because file at '/data/user/0/${PKG}/files/plugins/' does not exist.`,
+  "'stat' failed because file at '/storage/emulated/0/Documents/墨页/把想法，写下来-批注.pdf' does not exist.",
+];
+page.on('console', m => {
+  if (m.type() !== 'error') return;
+  const text = m.text();
+  if (text.includes('OS-PLUG-FILE-0008') && expectedFilesystemMessages.some(message => text.includes(message))) return;
+  errors.push(text);
+});
 page.on('pageerror', e => errors.push(String(e)));
 await page.waitForSelector('.library', { timeout: 90000 });
 await sleep(1500);

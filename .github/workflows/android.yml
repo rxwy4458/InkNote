@@ -130,6 +130,15 @@ jobs:
             signing-tools/
           if-no-files-found: ignore
 
+      - name: Validate the emulator report
+        run: |
+          test -s emulator-results/results.txt
+          if grep -q '^✗' emulator-results/results.txt; then
+            cat emulator-results/results.txt
+            exit 1
+          fi
+          grep -q '✓ release build starts and keeps running' emulator-results/results.txt
+
       - name: Publish the release
         if: steps.signing.outputs.configured == 'true'
         env:
