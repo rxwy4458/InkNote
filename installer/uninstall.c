@@ -76,7 +76,7 @@ static int inside_root(const W*s){U32 n=length(legacy_root);return n>0&&prefix(s
 static int old_name(const W*name){
  if(equal(name,(const W*)L"InkNote-0.2.0"))return 1;
 #ifdef INKNOTE_CURRENT
- if(equal(name,(const W*)L"InkNote-0.3.1")||equal(name,(const W*)L"InkNote-0.3.2")||equal(name,(const W*)L"InkNote-0.3.3")||equal(name,(const W*)L"InkNote-0.4.0")||equal(name,(const W*)L"InkNote-0.5.0")||equal(name,(const W*)L"InkNote-0.6.0")||equal(name,(const W*)L"InkNote-0.6.1"))return 1;
+ if(equal(name,(const W*)L"InkNote-0.3.1")||equal(name,(const W*)L"InkNote-0.3.2")||equal(name,(const W*)L"InkNote-0.3.3")||equal(name,(const W*)L"InkNote-0.4.0")||equal(name,(const W*)L"InkNote-0.5.0")||equal(name,(const W*)L"InkNote-0.6.0")||equal(name,(const W*)L"InkNote-0.6.1")||equal(name,(const W*)L"InkNote-0.7.0"))return 1;
 #endif
  const W*p=(const W*)L".previous-";if(!prefix(name,p)||length(name)!=length(p)+32)return 0;
  for(U32 i=length(p);name[i];i++){W c=lower(name[i]);if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')))return 0;}return 1;
@@ -107,6 +107,7 @@ static int identifies_app(void){
  version=version||ascii_has(manifest,n,"\"version\":\"0.5.0\"")||ascii_has(manifest,n,"\"version\": \"0.5.0\"");
  version=version||ascii_has(manifest,n,"\"version\":\"0.6.0\"")||ascii_has(manifest,n,"\"version\": \"0.6.0\"");
  version=version||ascii_has(manifest,n,"\"version\":\"0.6.1\"")||ascii_has(manifest,n,"\"version\": \"0.6.1\"");
+ version=version||ascii_has(manifest,n,"\"version\":\"0.7.0\"")||ascii_has(manifest,n,"\"version\": \"0.7.0\"");
 #endif
  return (ascii_has(manifest,n,"\"name\":\"inknote\"")||ascii_has(manifest,n,"\"name\": \"inknote\""))&&version;
 }
@@ -151,6 +152,24 @@ typedef I32 (API *FRegQuery)(H,const W*,U32*,U32*,unsigned char*,U32*);
 typedef I32 (API *FRegClose)(H);
 typedef I32 (API *FRegDelete)(H,const W*);
 static const W registration_key[]=L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\InkNoteDesktop";
+/* 0.7.0+: the user may install into any folder. The program root is the parent of the registered InstallLocation
+   (…\\InkNote-x.y.z). Only a recognised version folder under a real folder (not a drive root, not a network path)
+   is accepted; otherwise the default %LOCALAPPDATA%\\Programs\\InkNoteDesktop is kept. */
+static int registered_root(void){
+ H key=0;H current_user=(H)(U64)0xffffffff80000001ULL;
+ if(WIN(RegOpenKeyExW,FRegOpen)(current_user,registration_key,0,0x20019,&key))return 0;
+ U32 type=0,bytes=sizeof(canonical);
+ I32 result=WIN(RegQueryValueExW,FRegQuery)(key,(const W*)L"InstallLocation",0,&type,(unsigned char*)canonical,&bytes);
+ WIN(RegCloseKey,FRegClose)(key);
+ if(result||type!=1||bytes<2||bytes>sizeof(canonical)||bytes%2||canonical[bytes/2-1])return 0;
+ U32 n=WIN(GetFullPathNameW,FFullPath)(canonical,CAP,target,0);if(!n||n>=CAP)return 0;
+ while(n>3&&target[n-1]=='\\')target[--n]=0;
+ U32 cut=n;while(cut>0&&target[cut-1]!='\\')cut--;
+ if(cut<5||!old_name(target+cut))return 0;
+ target[cut-1]=0;
+ if(length(target)<4||target[1]!=':'||target[2]!='\\')return 0;
+ copy(legacy_root,target);return 1;
+}
 static void remove_registration(void){
  H key=0;H current_user=(H)(U64)0xffffffff80000001ULL;
  I32 result=WIN(RegOpenKeyExW,FRegOpen)(current_user,registration_key,0,0x20019,&key);
@@ -183,6 +202,9 @@ static U32 uninstall_main(void){
  U32 n=WIN(GetEnvironmentVariableW,FEnv)((const W*)L"LOCALAPPDATA",legacy_root,CAP);
  if(!n||n>CAP-100||!append(legacy_root,(const W*)L"\\Programs\\InkNoteDesktop")){message((const W*)L"无法确定旧版安装位置，未删除任何文件。",0x10);return 1;}
  n=WIN(GetFullPathNameW,FFullPath)(legacy_root,CAP,canonical,0);if(!n||n>=CAP){message((const W*)L"旧版安装路径无效，未删除任何文件。",0x10);return 1;}copy(legacy_root,canonical);
+#ifdef INKNOTE_CURRENT
+ registered_root();  /* a custom install folder chosen in the installer */
+#endif
  n=WIN(GetModuleFileNameW,FModule)(0,scratch,CAP);int tool_inside=inside_root(scratch);
 #ifdef INKNOTE_CURRENT
  copy(target,legacy_root);append(target,(const W*)L"\\Uninstall-InkNote.exe");if(equal(scratch,target))tool_inside=0;

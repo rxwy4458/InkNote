@@ -1,0 +1,12 @@
+{
+  "id": "reader",
+  "name": "导入阅读",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "main": "index.mjs",
+  "icon": "upload",
+  "author": "墨页",
+  "description": "导入 PDF 和电子书（EPUB、TXT、FB2、HTML、CBZ、Markdown；MOBI、AZW3 等需本机 Calibre），在原文上手写批注、查找和导出。",
+  "documents": [{ "kind": "pdf" }, { "kind": "ebook" }],
+  "fileTypes": ["pdf", "epub", "txt", "fb2", "html", "htm", "cbz", "md", "mobi", "azw", "azw3", "azw4", "prc", "rtf", "docx", "odt", "chm", "lit", "lrf", "pdb", "snb", "tcr", "djvu", "cbr"]
+}

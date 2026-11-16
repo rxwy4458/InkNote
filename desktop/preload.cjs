@@ -10,5 +10,7 @@ contextBridge.exposeInMainWorld('desktop',{
  convertEbook:payload=>ipcRenderer.invoke('inknote:convert-ebook',payload),
  onBeforeClose:callback=>{ipcRenderer.on('inknote:before-close',()=>callback());ipcRenderer.send('inknote:renderer-ready');},
  closeReady:ok=>ipcRenderer.send('inknote:close-ready',ok===true),
- exchange:(channel,payload)=>['exchange:status','exchange:choose','exchange:open','exchange:list','exchange:read','exchange:write-begin','exchange:write-chunk','exchange:write-end','exchange:remove'].includes(channel)?ipcRenderer.invoke(channel,payload):Promise.resolve({error:'不支持的操作'})
+ plugins:(channel,payload)=>['plugins:list','plugins:install','plugins:install-folder','plugins:remove','plugins:open-folder','plugins:open-sdk'].includes(channel)?ipcRenderer.invoke(channel,payload):Promise.resolve({error:'不支持的操作'}),
+ onExchangeChange:callback=>{ipcRenderer.removeAllListeners('exchange:changed');ipcRenderer.on('exchange:changed',()=>callback());},
+ exchange:(channel,payload)=>['exchange:status','exchange:choose','exchange:open','exchange:list','exchange:scan','exchange:mkdir','exchange:rename','exchange:use-sub','exchange:busy','exchange:read','exchange:write-begin','exchange:write-chunk','exchange:write-end','exchange:remove'].includes(channel)?ipcRenderer.invoke(channel,payload):Promise.resolve({error:'不支持的操作'})
 });

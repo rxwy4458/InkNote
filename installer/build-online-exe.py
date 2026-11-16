@@ -49,7 +49,10 @@ def build(output,runtime_archive=None):
             if archive.read('version').decode().strip().removeprefix('v')!=runtime:raise ValueError('Windows runtime version mismatch')
             executable=archive.read('electron.exe');pe=u32(executable,0x3c)
             if executable[:2]!=b'MZ' or u16(executable,pe+4)!=0x8664:raise ValueError('Windows x64 runtime required')
-    script_source=(ROOT/('installer/setup-offline.ps1' if offline else 'installer/setup.ps1')).read_text()
+    # utf-8-sig: a byte-order mark saved in the .ps1 is dropped here; exactly one is written below. A second one becomes a
+    # character in front of param(...), Windows PowerShell then runs the script without binding -BundlePath (0.7.0 bug).
+    script_source=(ROOT/('installer/setup-offline.ps1' if offline else 'installer/setup.ps1')).read_text(encoding='utf-8-sig')
+    if '\ufeff' in script_source or not script_source.lstrip().startswith('param('):raise ValueError('The setup script must start with its param(...) block and contain no byte-order mark character.')
     assert re.search(r"\$appVersion='([^']+)'",script_source)[1]==version
     assert re.search(r"\$electronVersion='([^']+)'",script_source)[1]==runtime
     script=b'\xef\xbb\xbf'+script_source.replace('\r\n','\n').replace('\n','\r\n').encode('utf-8')

@@ -1,6 +1,6 @@
 """Inspect the deliverable itself; this is not a Windows execution test."""
 from pathlib import Path
-import hashlib, importlib.util, io, json, struct, sys, zipfile
+import hashlib, importlib.util, io, json, os, shutil, struct, subprocess, sys, tempfile, zipfile
 root=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('online_builder',root/'installer/build-online-exe.py')
 builder=importlib.util.module_from_spec(spec);spec.loader.exec_module(builder)
@@ -58,13 +58,31 @@ with zipfile.ZipFile(io.BytesIO(report['payload'])) as archive:
    assert electron.read('version').decode().strip()==runtime['version']
    assert electron.testzip() is None
    pe_imports(electron.read('electron.exe'))
-script_source=(root/('installer/setup-offline.ps1' if offline else 'installer/setup.ps1')).read_text()
+script_source=(root/('installer/setup-offline.ps1' if offline else 'installer/setup.ps1')).read_text(encoding='utf-8-sig')
 if offline:
  for forbidden in ['Download-Official','WebClient','Invoke-WebRequest','DownloadFile','https://','http://']:
   assert forbidden not in script_source,forbidden
  assert 'tools\\runtime.json' in script_source
 script=b'\xef\xbb\xbf'+script_source.replace('\r\n','\n').replace('\n','\r\n').encode('utf-8')
 assert script in binary
+# Exactly one byte-order mark in front of param(...): a second one (0.7.0) made Windows PowerShell skip the param block,
+# so -BundlePath was never bound and the installer stopped with "空路径名是非法的".
+start=binary.index(script)
+assert binary[start-3:start]!=b'\xef\xbb\xbf' and script[3:9]==b'param(' and '\ufeff' not in script_source,'setup script must start with one BOM and param('
+# With PowerShell available (PWSH=path, or pwsh on PATH): the embedded script, written out as the bootstrapper writes it,
+# must bind -BundlePath.
+pwsh=os.environ.get('PWSH') or shutil.which('pwsh')
+if pwsh:
+ with tempfile.TemporaryDirectory(prefix='inknote-script-') as folder:
+  first=script.split(b'\r\n',1)[0]
+  probe=Path(folder)/'setup.ps1';probe.write_bytes(first+b'\r\n"BOUND=[$BundlePath]"\r\n')
+  out=subprocess.run([pwsh,'-NoLogo','-NoProfile','-NonInteractive','-File',str(probe),'-BundlePath','C:\\Temp\\InkNote-Setup.exe'],capture_output=True,text=True,timeout=120)
+  assert 'BOUND=[C:\\Temp\\InkNote-Setup.exe]' in out.stdout,(out.stdout,out.stderr)
+  full=Path(folder)/'full.ps1';full.write_bytes(script)
+  checker=Path(folder)/'check.ps1'
+  checker.write_text("param([string]$Target)\n$e=$null;$t=$null\n$a=[System.Management.Automation.Language.Parser]::ParseFile($Target,[ref]$t,[ref]$e)\nif($e.Count){$e|ForEach-Object{$_.Message};exit 4}\nif(-not $a.ParamBlock -or ($a.ParamBlock.Parameters.Name.VariablePath.UserPath -notcontains 'BundlePath')){exit 3}\n'PARSED'\n",encoding='utf-8')
+  check=subprocess.run([pwsh,'-NoLogo','-NoProfile','-NonInteractive','-File',str(checker),'-Target',str(full)],capture_output=True,text=True,timeout=120)
+  assert check.returncode==0 and 'PARSED' in check.stdout,(check.returncode,check.stdout,check.stderr)
 damaged=bytearray(binary);damaged[-builder.FOOTER_SIZE-100]^=1
 try:builder.inspect_bundle(damaged)
 except ValueError as error:assert 'SHA-256' in str(error)

@@ -1,6 +1,8 @@
 import {paperAccent,spacingStep,pageHeader,drawPageHeader,drawMarginLine} from './infinite.mjs';
 const FONT='"Segoe UI","Microsoft YaHei",sans-serif';
 const INK='#1d1b20',INK2='#49454f',INK3='#79747e',RULE='#e7e0ec';
+// Plugins can draw on canvas pages right above the paper (editor, thumbnails, page pictures and PDF export).
+let decorator=null;export function setPageDecorator(fn){decorator=typeof fn==='function'?fn:null;}
 export function background(ctx,page,scale=1){
  const {width:w,height:h}=page;
  ctx.save();ctx.scale(scale,scale);ctx.fillStyle='#ffffff';ctx.fillRect(0,0,w,h);
@@ -11,6 +13,7 @@ export function background(ctx,page,scale=1){
  if(page.template==='grid'){const y0=Math.ceil(top/step)*step;for(let x=0;x<w;x+=step){ctx.beginPath();ctx.moveTo(x,y0);ctx.lineTo(x,h);ctx.stroke();}for(let y=y0;y<h;y+=step){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}}
  if(page.template==='dot'){ctx.fillStyle='#c4bfca';const y0=Math.max(28,Math.ceil((top+4)/step)*step+8);for(let x=28;x<w;x+=step)for(let y=y0;y<h;y+=step){ctx.beginPath();ctx.arc(x,y,.7,0,Math.PI*2);ctx.fill();}}
  drawMarginLine(ctx,page,0,h);
+ if(decorator&&page.ext){ctx.save();try{decorator(ctx,page);}catch(e){console.error('page decorator',e);}ctx.restore();}
  drawPageHeader(ctx,page);
  ctx.restore();
 }

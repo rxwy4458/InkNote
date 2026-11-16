@@ -1,6 +1,6 @@
 {
-  "version": "0.6.1",
-  "date": "2026-11-08",
+  "version": "0.7.0",
+  "date": "2026-11-15",
   "ui": {
     "style": "Material You / Material 3 Expressive",
     "dynamic_color": "Material Color Utilities 0.4.0, spec 2025",
@@ -27,11 +27,11 @@
     "paper_and_pdf_export_theme_independent": true
   },
   "application_tests": {
-    "passed": 43,
+    "passed": 51,
     "failed": 0,
-    "new_in_0_6_0": "tests/bundle.test.mjs (ZIP container write/read/CRC rejection), EPUB publisher-DRM detection vs. font obfuscation; startup test stubs desktop/google.cjs"
+    "new_in_0_7_0": "tests/matrix.test.mjs (template × layer model: lock, merge, fork, validate), tests/plugin-host.test.mjs (discovery, override, registries, ownership); startup test stubs desktop/plugins.cjs"
   },
-  "javascript_syntax_and_offline_assets": "passed: 32 modules; fonts (89-icon Material Symbols subset), KaTeX CSS and woff2 fonts, markdown-it/KaTeX bundle and colour library present",
+  "javascript_syntax_and_offline_assets": "passed: 44 modules; fonts (100-icon Material Symbols subset), KaTeX CSS and woff2 fonts, markdown-it/KaTeX bundle, colour library, built-in plugins and plugin SDK present",
   "browser_end_to_end": {
     "tool": "Playwright Chromium against scripts/serve.mjs",
     "workflow_checks_passed": 49,
@@ -103,6 +103,31 @@
       "annotate-allowed owner-password PDF exports via per-page raster",
       "open-password PDF prompts and exports",
       "70 MB PDF round-trips through the v2 ZIP backup"
+    ],
+    "suites_0_7_0": {
+      "workflow": 49,
+      "features": 66,
+      "scroll": 26,
+      "rich_text": 23,
+      "posts": 7,
+      "themes": 12,
+      "old_note_compatibility": 10,
+      "zip_export_import": 4,
+      "matrix_canvas": 50,
+      "protected_pdf": "passed (3 files)",
+      "big_pdf": "passed (70 MB ZIP backup round trip)",
+      "failed": 0
+    },
+    "matrix_canvas_covers": [
+      "create from tile; template and layer bars",
+      "lock by double-click; pen and eraser only touch the active layer; locked layers stay visible",
+      "vertical and horizontal long-press scrubbing stops on release",
+      "merge into the locked layer; fork copies locked layers into a new template on the right",
+      "new / delete / rename / move templates and layers, menus, Alt shortcuts",
+      "undo / redo across all of these",
+      "every template and layer thumbnail painted after switching; page thumbnail follows the template on screen",
+      "export, .inknote round trip, multi-page",
+      "plugin switched off: notes kept and marked; switched on again: back"
     ]
   },
   "old_notes_compatibility": {
@@ -136,12 +161,20 @@
     ],
     "window_maximize_behaviour": "not verifiable without a window manager; IPC path verified",
     "checks_passed": 17,
-    "startup_report_version": "0.6.1"
+    "startup_report_version": "0.7.0",
+    "plugins_checks_passed": 16,
+    "plugins_covers": [
+      "five built-in plugins load from inknote://app/plugins",
+      "disable / enable / uninstall / reinstall built-ins; notes kept and marked while disabled",
+      "install .inkplugin, override a built-in id, rescan on focus, uninstall to the Recycle Bin",
+      "user-plugin paths cannot escape the plugin folder",
+      "split view keeps working with plugins"
+    ]
   },
   "offline_installer": {
-    "file": "InkNote-Setup-0.6.1-offline.exe",
-    "bytes": 161578691,
-    "sha256": "dc013b69b3d3ca01e873562af008593cb5fbea840365e87238f345b4144731d4",
+    "file": "InkNote-Setup-0.7.0-offline.exe",
+    "bytes": 161661225,
+    "sha256": "dcbfc5fd792234fad27da368a85bd5044389fa56c4995f09ccbd5c090aa14d12",
     "complete_runtime_embedded": true,
     "runtime": {
       "version": "45.2.3",
@@ -162,14 +195,16 @@
     "windows_x64_gui_pe_and_native_uninstaller": "checked",
     "archive_integrity_and_corruption_rejection": "passed",
     "windows_execution_verified": false,
-    "icon_resource": "9 sizes 16–256 px (pefile checked)"
+    "icon_resource": "9 sizes 16–256 px (pefile checked)",
+    "wizard": "install location (validated), desktop / Start-menu shortcut and launch options; PowerShell 7.4 parse check only",
+    "script_encoding": "exactly one UTF-8 byte-order mark before param(...); the first 0.7.0 build carried two, so Windows PowerShell 5.1 skipped the param block, -BundlePath stayed empty and setup stopped with \"空路径名是非法的\" (fixed in the builder, checked by test-online-installer.py, which also binds -BundlePath with PowerShell 7.4)"
   },
   "uninstaller": {
     "file": "Uninstall-InkNote.exe",
     "bytes": 63488,
-    "sha256": "6a79571c8d54f251c93d19cead7983a801b66bd1165681178a42c23c736a7a86",
+    "sha256": "e775c15885b0a58dc9eed1d294912fe7fcf6b2847b161496d07b1700e3a66aba",
     "native_gui": true,
-    "simulated_filesystem_and_registry_tests": "passed ASan/UBSan; legacy and current modes, incl. 0.6.1 path and manifest recognition (0.6.2 rejected)",
+    "simulated_filesystem_and_registry_tests": "passed ASan/UBSan; legacy and current modes, incl. 0.7.0 path and manifest recognition (0.7.1 rejected) and custom install roots from InstallLocation (drive roots, UNC and unrelated folders rejected)",
     "recognized_versions": [
       "0.2.0",
       "0.3.1",
@@ -178,7 +213,8 @@
       "0.4.0",
       "0.5.0",
       "0.6.0",
-      "0.6.1"
+      "0.6.1",
+      "0.7.0"
     ],
     "preserves_notes": true,
     "icon_resource": true
@@ -218,26 +254,37 @@
     "new nested reply could be hidden behind the sticky reply box",
     "post previews on library cards showed raw Markdown"
   ],
-  "import_export_folder": {
-    "tested_with": "two Electron 45.2.3 profiles sharing one folder (as a cloud-drive sync folder would be)",
-    "checks_passed": 27,
-    "checks_failed": 0,
-    "covers": [
-      "Google sign-in, sync and Drive export removed",
-      "one click exports each note as <title>-<id8>.inknote; untouched samples skipped; no temporary files",
-      "re-export skips unchanged notes; importing own folder changes nothing",
-      "second computer imports all notes with the same ids; PDF opens; importing twice does not duplicate",
-      "an edit exported from B replaces the note on A",
-      "both edited: file imported as a '（导入版本）' copy, local note untouched",
-      "rename replaces the old file; deleting a note removes its file on export",
-      "folder import does not resurrect a note deleted here; choosing the file explicitly does",
-      "paths outside the folder, other file types and unknown channels refused; missing folder reported"
-    ],
-    "browser": "export all as one .zip; .zip import in another profile"
-  },
   "changes_0_6_1": [
     "removed Google OAuth sign-in and Drive sync (needed a per-user Google Cloud client ID)",
     "added one-click import/export folder with id-based merge, conflict copies and deletion handling",
     "browser build exports/imports one .zip"
+  ],
+  "library_folder": {
+    "tested_with": "Electron 45.2.3, several profiles sharing one folder (as a cloud-drive sync folder would be)",
+    "checks_passed": 53,
+    "checks_failed": 0,
+    "covers": [
+      "one sub-folder per sidebar folder; PDF written as the original file byte for byte with a small <file>.inknote beside it; notebooks as <title>-<id8>.inknote; untouched samples skipped; no temporary files",
+      "PDF and TXT copied in are imported automatically (folder watcher) into the matching sidebar folder; a new sub-folder becomes a sidebar folder",
+      "moving / renaming files in the file manager moves / renames the note (PDF alone, PDF with its annotation file, notebook files)",
+      "renaming / moving a note in the app renames / moves its files; deleting a note sends its files to the Recycle Bin",
+      "a file deleted in the folder: the app asks (keep and write back, or delete the note); an empty sub-folder deleted removes the sidebar folder",
+      "a note file copied to a second sub-folder becomes a note of its own after it stays (not while a move may be in progress)",
+      "second computer joins: same ids, titles, folders, handwriting; PDF opens from the plain file; edits travel both ways; both edited → «（导入版本）» copy",
+      "a folder that already holds other things: asks first; new 墨页笔记库 sub-folder; closing the question imports nothing",
+      "0.6.1 top-level files migrated into sub-folders without moving notes (start-up sync)",
+      "missing folder reported in the sidebar and dialog; notes untouched",
+      "outside paths, other file types, Windows device names and unknown channels refused"
+    ]
+  },
+  "features_0_7_0": [
+    "二维模板画布 (template × layer matrix canvas) as a built-in plugin",
+    "canvases, posts and reading as installable plugins; plugin manager; 插件开发指南 + plugin-api.d.ts + example",
+    "installer wizard: install location and shortcut options; uninstaller finds custom locations",
+    "笔记库文件夹: plain-file library folder that matches the sidebar, copy-in import, two-way moves / renames / deletions"
+  ],
+  "changes_0_7_0": [
+    "one-click import/export folder replaced by the library folder",
+    "sidebar categories, home tiles, new-note menu and import types now come from plugins"
   ]
 }

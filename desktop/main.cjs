@@ -3,6 +3,7 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 const {randomUUID}=require('node:crypto');
 const {convertEbook}=require('./converter.cjs');
+const plugins=require('./plugins.cjs');
 const ROOT=path.resolve(__dirname,'../app');
 const smokeIndex=process.argv.indexOf('--smoke-test-output');
 const smokeOutput=smokeIndex>=0&&process.argv[smokeIndex+1]?path.resolve(process.argv[smokeIndex+1]):null;
@@ -33,7 +34,7 @@ protocol.registerSchemesAsPrivileged([{scheme:'inknote',privileges:{standard:tru
 app.setAppUserModelId('com.inknote.desktop');
 let win,allowClose=false,closePending=false,rendererReady=false;
 function trusted(event){try{const u=new URL(event.senderFrame.url);return event.sender===win?.webContents&&u.protocol==='inknote:'&&u.hostname==='app';}catch{return false;}}
-const types={'.html':'text/html; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.wasm':'application/wasm','.json':'application/json','.ttf':'font/ttf','.woff2':'font/woff2','.woff':'font/woff','.png':'image/png','.ico':'image/x-icon'};
+const types={'.md':'text/markdown; charset=utf-8','.txt':'text/plain; charset=utf-8','.ts':'text/plain; charset=utf-8','.html':'text/html; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.wasm':'application/wasm','.json':'application/json','.ttf':'font/ttf','.woff2':'font/woff2','.woff':'font/woff','.png':'image/png','.ico':'image/x-icon'};
 if(!app.requestSingleInstanceLock())app.quit();
 else{
  app.on('second-instance',()=>{if(win){if(win.isMinimized())win.restore();win.focus();}});
@@ -41,8 +42,10 @@ else{
   startupTimer=setTimeout(()=>void reportFailure(new Error('启动等待超过 30 秒，请查看诊断文件。')),30000);
   protocol.handle('inknote',async request=>{
    try{const u=new URL(request.url);if(u.hostname!=='app'||request.method!=='GET')return new Response('Forbidden',{status:403});
-    const file=path.resolve(ROOT,'.'+decodeURIComponent(u.pathname==='/'?'/index.html':u.pathname));
-    if(!file.startsWith(ROOT+path.sep))return new Response('Forbidden',{status:403});
+    const pathname=decodeURIComponent(u.pathname==='/'?'/index.html':u.pathname);
+    // User-installed plugins: same origin as the app, files only from <app data>/plugins/<id>/.
+    const file=pathname.startsWith('/user-plugins/')?plugins.resolveUserFile(pathname):path.resolve(ROOT,'.'+pathname);
+    if(!file||(!pathname.startsWith('/user-plugins/')&&!file.startsWith(ROOT+path.sep)))return new Response('Forbidden',{status:403});
     return new Response(await fs.readFile(file),{headers:{'Content-Type':types[path.extname(file)]||'application/octet-stream','X-Content-Type-Options':'nosniff'}});
    }catch{return new Response('Not found',{status:404});}
   });
@@ -72,6 +75,7 @@ else{
    try{return {ok:true,bytes:await convertEbook(payload,converterPath)};}catch(e){return {ok:false,error:e.message};}finally{converting=false;}
   });
   require('./exchange.cjs').register(ipcMain,trusted);
+  plugins.register(ipcMain,trusted);
   // Large exports arrive in chunks: begin (save dialog + temporary file) → chunk… → end (rename, or delete on failure).
   const saves=new Map(),MAX_SAVE=2*1024*1024*1024;
   ipcMain.handle('inknote:save-begin',async(event,payload)=>{

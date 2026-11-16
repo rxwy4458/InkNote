@@ -1,0 +1,11 @@
+{
+  "id": "matrix-canvas",
+  "name": "二维模板画布",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "main": "index.mjs",
+  "icon": "layers",
+  "author": "墨页",
+  "description": "单页 A4 上的“模板 × 图层”矩阵：横向是平行模板（新建、克隆分叉、长按左右滑动对比），纵向是当前模板里的图层（锁定层常驻显示，草稿层长按上下滑动翻看，合并进锁定层）。笔和橡皮擦只作用于选中的那一层。",
+  "documents": [{ "kind": "notebook", "canvasType": "matrix" }]
+}

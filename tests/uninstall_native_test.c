@@ -72,9 +72,10 @@ int main(void){
  nodes[6].contents="{\"name\":\"inknote\",\"version\":\"0.5.0\"}";assert(identifies_app());
  nodes[6].contents="{\"name\":\"inknote\",\"version\":\"0.6.0\"}";assert(identifies_app());
  nodes[6].contents="{\"name\":\"inknote\",\"version\":\"0.6.1\"}";assert(identifies_app());
- nodes[6].contents="{\"name\":\"inknote\",\"version\":\"0.6.2\"}";assert(!identifies_app());
+ nodes[6].contents="{\"name\":\"inknote\",\"version\":\"0.7.0\"}";assert(identifies_app());
+ nodes[6].contents="{\"name\":\"inknote\",\"version\":\"0.7.1\"}";assert(!identifies_app());
 #else
- nodes[6].contents="{\"name\":\"inknote\",\"version\":\"0.6.1\"}";assert(!identifies_app());
+ nodes[6].contents="{\"name\":\"inknote\",\"version\":\"0.7.0\"}";assert(!identifies_app());
 #endif
  nodes[6].contents="{\"name\":\"inknote\",\"version\":\"0.2.0\"}";
  remove_tree(0);assert(removed==4);assert(failed==0);assert(retained==5);assert(readonly_cleared==1);
@@ -89,13 +90,23 @@ int main(void){
  assert(old_target((const W*)L"C:\\Legacy\\InkNote-0.5.0\\InkNote.exe"));
  assert(old_target((const W*)L"C:\\Legacy\\InkNote-0.6.0\\InkNote.exe"));
  assert(old_target((const W*)L"C:\\Legacy\\InkNote-0.6.1\\InkNote.exe"));
- assert(!old_target((const W*)L"C:\\Legacy\\InkNote-0.6.2\\InkNote.exe"));
+ assert(old_target((const W*)L"C:\\Legacy\\InkNote-0.7.0\\InkNote.exe"));
+ assert(!old_target((const W*)L"C:\\Legacy\\InkNote-0.7.1\\InkNote.exe"));
  registered_location=(const W*)L"C:\\Other\\InkNote-0.3.1";remove_registration();assert(registrations_removed==0);
  registered_location=(const W*)L"C:\\LegacyOther\\InkNote-0.3.1";remove_registration();assert(registrations_removed==0);
  registered_location=(const W*)L"C:\\Legacy\\Unrelated";remove_registration();assert(registrations_removed==0);
  registered_location=(const W*)L"C:\\Legacy\\InkNote-0.3.1";registered_type=2;remove_registration();assert(registrations_removed==0);
  registered_type=1;remove_registration();assert(registrations_removed==1);
  registered_location=0;remove_registration();assert(registrations_removed==1);
+ /* custom install folder: root = parent of the registered version folder */
+ registered_location=(const W*)L"D:\\Apps\\InkNote\\InkNote-0.7.0";assert(registered_root());assert(equal(legacy_root,(const W*)L"D:\\Apps\\InkNote"));
+ assert(old_target((const W*)L"D:\\Apps\\InkNote\\InkNote-0.7.0\\InkNote.exe"));assert(!old_target((const W*)L"D:\\Apps\\Other\\InkNote.exe"));
+ copy(legacy_root,(const W*)L"C:\\Legacy");
+ registered_location=(const W*)L"D:\\InkNote-0.7.0";assert(!registered_root());assert(equal(legacy_root,(const W*)L"C:\\Legacy"));
+ registered_location=(const W*)L"D:\\Apps\\Other";assert(!registered_root());
+ registered_location=(const W*)L"D:\\Apps\\InkNote\\InkNote-9.9.9";assert(!registered_root());
+ registered_location=(const W*)L"\\\\server\\share\\InkNote-0.7.0";assert(!registered_root());
+ registered_location=0;assert(!registered_root());assert(equal(legacy_root,(const W*)L"C:\\Legacy"));
  assert(failed==0);
 #endif
  puts("Legacy uninstaller: program traversal, profile/document/image retention, link boundary and ownership checks passed.");

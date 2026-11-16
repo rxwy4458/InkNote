@@ -12,6 +12,9 @@ import {renderCommentTree} from './comment-tree-view.mjs';
 import {createDiscussion,discussionStats,matchingThreads,discussionDraft,ensureDiscussionFloors,publishDiscussionDraft,discussionLayout} from './discussion.mjs';
 import {readPdf,documentPdf,cachePdf,releasePdfs,renderBackground,exportPdf,pdfTextMatches,background} from './pdf.mjs';
 import {PRESETS,VARIANTS,MODES,DEFAULT_THEME,applyTheme,currentTheme,swatch} from './theme.mjs';
+import * as P from './plugin-host.mjs';
+import {setPageDecorator} from './paper.mjs';
+export const APP_VERSION='0.7.0';
 
 const $=s=>document.querySelector(s);
 const app=$('#app'),view=$('#view'),modal=$('#modal'),modalForm=$('#modal-form');
@@ -23,7 +26,7 @@ const S={accent:{primary:'#65558f',tertiary:'#7e5260'},theme:null,toolbarDock:'b
 const history=new Map(),pending=new Map();let saveTimer,saveChain=Promise.resolve(),saving=0,saveError=false,gesture=null,textarea=null,importing=false,closing=false,thumbObserver,navigation=0,viewportObserver,viewportFrame;
 const doc=()=>S.docs.find(d=>d.id===S.active);
 const page=()=>doc()?.pages[S.page];
-function pageSnapshot(){return doc().pages.map(p=>({...p,annotations:structuredClone(p.annotations),comments:structuredClone(p.comments||[])}));}
+function pageSnapshot(){return doc().pages.map(p=>({...p,annotations:structuredClone(p.annotations),comments:structuredClone(p.comments||[]),...(p.ext?{ext:structuredClone(p.ext)}:{})}));}
 function toast(message,error=false){const el=document.createElement('div');el.className='toast'+(error?' error':'');el.innerHTML=icon(error?'info':'check')+`<span>${E(message)}</span>`;$('#toasts').append(el);setTimeout(()=>el.remove(),error?7000:3200);}
 function failure(e){console.error(e);toast(e?.message||'操作未完成，请重试。',true);}
 function run(fn){return Promise.resolve().then(fn).catch(failure);}
@@ -35,47 +38,44 @@ async function flush(){
  saveChain=saveChain.catch(()=>{}).then(job);
  try{await saveChain;if(EMBED)for(const [id] of entries){try{host()?.docSaved?.(id);}catch{}}}finally{saving--;status();}
 }
-function remember(before){const d=doc();if(!d)return;const h=history.get(d.id)||{undo:[],redo:[]};h.undo.push(before);if(h.undo.length>40)h.undo.shift();h.redo=[];history.set(d.id,h);if(page().infinite){const e=contentExtent(page());growExtent(page(),e.width,e.height);}save();refreshHistory();updateThumb(S.page);updatePageCount();renderComments();if(doc().kind==='discussion')refreshDiscussionStats();}
+function remember(before){const d=doc();if(!d)return;const h=history.get(d.id)||{undo:[],redo:[]};h.undo.push(before);if(h.undo.length>40)h.undo.shift();h.redo=[];history.set(d.id,h);if(page().infinite){const e=contentExtent(page());growExtent(page(),e.width,e.height);}save();refreshHistory();updateThumb(S.page);updatePageCount();renderComments();if(doc().kind==='discussion')refreshDiscussionStats();extCall('changed');}
 async function undo(redo=false){finishText();const h=history.get(S.active);if(!h)return;const from=redo?h.redo:h.undo,to=redo?h.undo:h.redo;if(!from.length)return;to.push(pageSnapshot());doc().pages=from.pop();S.page=clamp(S.page,0,doc().pages.length-1);S.selection.clear();save();if(doc().kind==='discussion'){S.commentDraft=discussionDraft(page());renderComments();refreshHistory();refreshDiscussionStats();return;}renderThumbList();await showPage();refreshHistory();}
 function refreshHistory(){const h=history.get(S.active);const u=$('[data-action="undo"]'),r=$('[data-action="redo"]');if(u)u.disabled=!h?.undo.length;if(r)r.disabled=!h?.redo.length;}
 function relative(t){const diff=Math.max(0,Date.now()-t);if(diff<60000)return '刚刚编辑';if(diff<3600000)return `${Math.floor(diff/60000)} 分钟前`;if(diff<86400000)return `${Math.floor(diff/3600000)} 小时前`;return new Date(t).toLocaleDateString('zh-CN',{month:'short',day:'numeric'});}
 function modalShell(title,content,subtitle=''){return `<div class="modal-head"><h2>${E(title)}</h2><button type="button" class="icon-btn" data-modal-close aria-label="关闭" title="关闭 (Esc)">${icon('close')}</button></div>${subtitle?`<p class="modal-subtitle">${E(subtitle)}</p>`:''}${content}`;}
 function closeModal(){modal.close();modalForm.onsubmit=null;}
-function dialog(title,content,{subtitle='',submit}={}){if(modal.open)closeModal();modal.classList.remove('image-lightbox');$('#modal-content').innerHTML=modalShell(title,content,subtitle);modal.showModal();modalForm.onsubmit=e=>{e.preventDefault();if(submit)run(()=>submit(new FormData(modalForm)));};modal.querySelector('[data-modal-close]')?.addEventListener('click',closeModal);modal.querySelectorAll('[data-cancel]').forEach(x=>x.addEventListener('click',closeModal));setTimeout(()=>modal.querySelector('input:not([type=hidden]),textarea,select')?.focus(),50);}
+function dialog(title,content,{subtitle='',submit,size}={}){if(modal.open)closeModal();modal.classList.remove('image-lightbox','wide-modal','mid-modal');if(size==='wide'||size==='mid')modal.classList.add(size+'-modal');$('#modal-content').innerHTML=modalShell(title,content,subtitle);modal.showModal();modalForm.onsubmit=e=>{e.preventDefault();if(submit)run(()=>submit(new FormData(modalForm)));};modal.querySelector('[data-modal-close]')?.addEventListener('click',closeModal);modal.querySelectorAll('[data-cancel]').forEach(x=>x.addEventListener('click',closeModal));setTimeout(()=>modal.querySelector('input:not([type=hidden]),textarea,select')?.focus(),50);}
 function actions(ok='保存',danger=false){return `<div class="modal-actions"><button class="btn ghost" type="button" data-cancel>取消</button><button class="btn ${danger?'danger':'primary'}" type="submit">${E(ok)}</button></div>`;}
 function ask(title,label,value='',{type='text',ok='保存'}={}){return new Promise(resolve=>{dialog(title,`<label class="field-label" for="answer">${E(label)}</label><input class="field-input" id="answer" name="answer" type="${type}" value="${E(value)}" required maxlength="160" autocomplete="off">${actions(ok)}`,{submit:f=>{const v=f.get('answer').trim();if(v){closeModal();resolve(v);}}});modal.addEventListener('close',function closed(){if(modal.open)return;modal.removeEventListener('close',closed);resolve(null);});});}
 async function passwordPrompt(retry){return ask(retry?'密码不正确':'这份 PDF 需要密码',retry?'请重新输入打开密码':'输入密码后在本机打开','',{type:'password',ok:'打开 PDF'});}
 
 const NAV_MAIN=[['all','home','全部笔记'],['recent','clock','最近打开'],['favorites','star','已收藏']];
-const NAV_KINDS=[['time','time','时间画布'],['plain','draw','普通画布'],['discussion','post','帖子与评论'],['reading','reading','PDF 与电子书']];
+const navKinds=()=>P.categories().map(c=>[c.id,c.icon,c.title,c.pluginId]);
 const TONES=['olive','sand','blue','pink'];
 function inView(d,view){
  if(view==='all')return true;if(view==='recent')return !!d.lastOpened;if(view==='favorites')return !!d.favorite;
- if(view==='discussion')return d.kind==='discussion';if(view==='reading')return d.kind==='pdf'||d.kind==='ebook';
- if(view==='time')return d.kind==='notebook'&&d.canvasType==='time';if(view==='plain')return d.kind==='notebook'&&d.canvasType!=='time';
+ const cat=P.categories().find(c=>c.id===view);if(cat){try{return !!cat.match(d);}catch{return false;}}
  return view.startsWith('folder:')&&d.folder===view.slice(7);
 }
-function viewTitle(view){return Object.fromEntries([...NAV_MAIN,...NAV_KINDS].map(([v,,l])=>[v,l]))[view]||(view.startsWith('folder:')?view.slice(7):'全部笔记');}
+function viewTitle(view){return Object.fromEntries([...NAV_MAIN,...navKinds()].map(([v,,l])=>[v,l]))[view]||(view.startsWith('folder:')?view.slice(7):'全部笔记');}
+// Plugin icons: a Material Symbols name from the app's set, or an .svg file inside the plugin folder.
+function pIcon(name,pluginId,cls=''){if(typeof name==='string'&&/\.svg$/i.test(name)){const pl=P.plugin(pluginId);if(pl)return `<span class="icon icon-svg ${cls}" aria-hidden="true" style="--icon-url:url('${E(new URL(name,pl.base).href)}')"></span>`;}return icon(name||'plugin',cls);}
 function typeInfo(d){
- if(d.kind==='discussion')return {label:'帖子',icon:'post',key:'post'};
- if(d.kind==='pdf')return {label:'PDF',icon:'file',key:'pdf'};
- if(d.kind==='ebook')return {label:d.format||'电子书',icon:'reading',key:'book'};
- return d.canvasType==='time'?{label:'时间画布',icon:'time',key:'time'}:{label:'普通画布',icon:'draw',key:'plain'};
+ const t=P.docTypeOf(d);if(t)return {label:(d.kind==='ebook'&&d.format)||t.label,icon:t.icon,key:t.iconClass,pluginId:t.pluginId};
+ const o=P.ownerOf(d);return {label:o?o.manifest.name:'需要插件',icon:'plugin',key:'plugin',missing:true,owner:o};
 }
-function typeIcon(d,extra=''){const t=typeInfo(d);return `<span class="type-icon t-${t.key} ${extra}" aria-hidden="true">${icon(t.icon)}</span>`;}
+function typeIcon(d,extra=''){const t=typeInfo(d);return `<span class="type-icon t-${t.key} ${extra}" aria-hidden="true">${pIcon(t.icon,t.pluginId)}</span>`;}
 function stampParts(time){const f=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(time));const v=t=>f.find(p=>p.type===t)?.value||'';return {md:`${+v('month')}月${+v('day')}日`,y:v('year')};}
 function greeting(){const h=new Date().getHours();return h<5?'夜深了':h<9?'早上好':h<12?'上午好':h<14?'中午好':h<18?'下午好':'晚上好';}
-function navItem([value,ic,label]){const count=value==='recent'?'':S.docs.filter(d=>inView(d,value)).length;return `<button class="nav-item ${S.view===value?'active':''}" data-action="view" data-value="${value}" ${S.view===value?'aria-current="page"':''}><span class="nav-indicator">${icon(ic)}</span><span class="nav-label">${label}</span><span class="nav-count">${count||''}</span></button>`;}
-function createTiles(){return `<section class="quick-tiles" aria-label="新建">
- <button class="qs-tile tile-time" data-action="new" data-value="time"><span class="qs-icon">${icon('time')}</span><span class="qs-text"><strong>时间画布</strong><small>自动记录日期和时间</small></span></button>
- <button class="qs-tile tile-plain" data-action="new" data-value="plain"><span class="qs-icon">${icon('draw')}</span><span class="qs-text"><strong>普通画布</strong><small>可手动插入日期</small></span></button>
- <button class="qs-tile tile-post" data-action="new-discussion"><span class="qs-icon">${icon('post')}</span><span class="qs-text"><strong>发帖子</strong><small>多楼层逐层回复</small></span></button>
- <button class="qs-tile tile-import" data-action="import"><span class="qs-icon">${icon('upload')}</span><span class="qs-text"><strong>导入阅读</strong><small>PDF · EPUB · TXT</small></span></button>
-</section>`;}
+function navItem([value,ic,label,pluginId]){const count=value==='recent'?'':S.docs.filter(d=>inView(d,value)).length;return `<button class="nav-item ${S.view===value?'active':''}" data-action="view" data-value="${E(value)}" ${S.view===value?'aria-current="page"':''}><span class="nav-indicator">${pIcon(ic,pluginId)}</span><span class="nav-label">${E(label)}</span><span class="nav-count">${count||''}</span></button>`;}
+function createTiles(){const list=P.tiles();if(!list.length)return `<section class="quick-tiles empty-tiles"><button class="qs-tile tile-import" data-action="plugins"><span class="qs-icon">${icon('plugin')}</span><span class="qs-text"><strong>启用插件</strong><small>能新建什么由插件决定</small></span></button></section>`;
+ return `<section class="quick-tiles" aria-label="新建" style="--tiles:${Math.min(list.length,5)}">${list.map(t=>`<button class="qs-tile ${E(t.className||'tile-plugin')}" data-action="plugin-tile" data-id="${E(t.pluginId+':'+t.id)}"><span class="qs-icon">${pIcon(t.icon,t.pluginId)}</span><span class="qs-text"><strong>${E(t.title)}</strong><small>${E(t.subtitle)}</small></span></button>`).join('')}</section>`;}
 function newCardFor(view){
- const spec={time:['new','time','新建时间画布','自动记录日期和时间'],plain:['new','plain','新建普通画布','无限画布或 A4 分页'],discussion:['new-discussion','','新建帖子','主楼 · 日期时间 · 楼中楼'],reading:['import','','导入 PDF 或电子书','EPUB · TXT · FB2 · CBZ …']}[view]||(view.startsWith('folder:')?['new','','在此文件夹新建画布','时间画布或普通画布']:null);
- if(!spec)return '';const [action,value,label,sub]=spec;
- return `<button class="new-card" data-action="${action}" ${value?`data-value="${value}"`:''}><span class="new-plus cookie">${icon(action==='import'?'upload':'plus')}</span><strong>${label}</strong><small>${sub}</small></button>`;
+ const cat=P.categories().find(c=>c.id===view);
+ if(cat?.newCard)return `<button class="new-card" data-action="plugin-newcard" data-id="${E(cat.id)}"><span class="new-plus cookie">${pIcon(cat.newCard.icon||'plus',cat.pluginId)}</span><strong>${E(cat.newCard.title)}</strong><small>${E(cat.newCard.subtitle)}</small></button>`;
+ const types=P.canvasTypes();
+ if(view.startsWith('folder:')&&types.length)return `<button class="new-card" data-action="new" data-value=""><span class="new-plus cookie">${icon('plus')}</span><strong>在此文件夹新建画布</strong><small>${E(types.map(c=>c.title).join('、'))}</small></button>`;
+ return '';
 }
 function emptyFor(view){
  const text={recent:['还没有打开过笔记','打开过的笔记会按时间出现在这里。'],favorites:['还没有收藏','在笔记的「⋮」菜单里选择「收藏」。'],all:['从一页纸开始','新建一个画布或帖子，或者把 PDF 拖进窗口。']}[view];
@@ -83,10 +83,11 @@ function emptyFor(view){
 }
 async function refreshStorage(){
  const est=await navigator.storage?.estimate?.().catch(()=>null);const bar=$('#storage-bar'),text=$('#storage-text');if(!bar||!text||!est)return;
- const used=(est.usage||0)/1024/1024;bar.style.width=Math.min(100,Math.max(2,(est.usage||0)/(est.quota||1)*100))+'%';text.textContent=`已使用 ${used<10?used.toFixed(1):Math.round(used)} MB · 仅存本机`;
+ const used=(est.usage||0)/1024/1024;bar.style.width=Math.min(100,Math.max(2,(est.usage||0)/(est.quota||1)*100))+'%';text.textContent=`已使用 ${used<10?used.toFixed(1):Math.round(used)} MB · ${EXCHANGE.status?.folder?'笔记库文件夹另有一份':'仅存本机'}`;
 }
 function renderLibrary(){
- queueMicrotask(placeToolbar);S.active=null;S.renderEpoch++;gesture=null;thumbObserver?.disconnect();viewportObserver?.disconnect();
+ extUnmount();queueMicrotask(placeToolbar);
+ if(!['all','recent','favorites'].includes(S.view)&&!S.view.startsWith('folder:')&&!P.categories().some(c=>c.id===S.view))S.view='all';/* its plugin was switched off */S.active=null;S.renderEpoch++;gesture=null;thumbObserver?.disconnect();viewportObserver?.disconnect();
  const q=S.query.toLocaleLowerCase();
  const matches=new Map(),filtered=S.docs.filter(d=>{if(!inView(d,S.view))return false;const m=matchDoc(d,q);if(m.snippet)matches.set(d.id,m.snippet);return m.ok;});
  filtered.sort((a,b)=>S.sort==='title'?a.title.localeCompare(b.title,'zh-CN'):S.sort==='created'?b.createdAt-a.createdAt:S.view==='recent'?b.lastOpened-a.lastOpened:b.updatedAt-a.updatedAt);
@@ -98,11 +99,11 @@ function renderLibrary(){
  <div class="sidebar-brand drag"><img class="brand-logo" src="icon.svg" alt="" aria-hidden="true"><span class="brand-name">墨页</span></div>
  <div class="sidebar-new"><button class="fab extended" data-action="new-chooser" title="新建画布、帖子或导入文件">${icon('edit')}<span>新建</span></button></div>
  <nav class="side-nav" aria-label="笔记分类">${NAV_MAIN.map(navItem).join('')}
-  <div class="side-label">分类</div>${NAV_KINDS.map(navItem).join('')}
+  ${navKinds().length?`<div class="side-label">分类</div>${navKinds().map(navItem).join('')}`:''}
   <div class="side-label">文件夹<button class="icon-btn tiny" data-action="new-folder" title="新建文件夹" aria-label="新建文件夹">${icon('plus')}</button></div>
   ${S.folders.map((f,i)=>`<button class="nav-item ${S.view==='folder:'+f?'active':''}" data-action="view" data-value="folder:${E(f)}"><span class="nav-indicator folder-${i%4}">${icon('folder')}</span><span class="nav-label">${E(f)}</span><span class="nav-count">${S.docs.filter(d=>d.folder===f).length||''}</span></button>`).join('')}
  </nav>
- <div class="sidebar-foot" title="笔记保存在这台电脑的应用数据中，换电脑前请导出 .inknote 备份"><div class="storage-label">${icon('storage')}<span>本机存储</span></div><div class="storage-bar"><span id="storage-bar"></span></div><small id="storage-text">笔记只保存在这台电脑</small><button type="button" class="exchange-status" id="exchange-status" data-action="exchange"><span class="exchange-icon">${icon('folder')}</span><span class="exchange-text">一键导入导出</span></button></div>
+ <div class="sidebar-foot" title="笔记保存在这台电脑的应用数据中；设置笔记库文件夹后，还会以普通文件放一份在那里"><div class="storage-label">${icon('storage')}<span>本机存储</span></div><div class="storage-bar"><span id="storage-bar"></span></div><small id="storage-text">笔记只保存在这台电脑</small><button type="button" class="exchange-status" id="exchange-status" data-action="exchange"><span class="exchange-icon">${icon('folder')}</span><span class="exchange-text">笔记库文件夹</span></button></div>
 </aside>
 <main class="library">
  <header class="library-top drag"><label class="search-bar">${icon('search')}<input id="library-search" type="search" placeholder="搜索笔记标题和内容" aria-label="搜索笔记标题和内容" value="${E(S.query)}" autocomplete="off"><kbd>Ctrl K</kbd></label><span class="spacer"></span><button class="icon-btn" data-action="theme" title="配色与外观" aria-label="配色与外观">${icon('palette')}</button><button class="icon-btn" data-action="import" title="导入 PDF、电子书或 .inknote 备份" aria-label="导入">${icon('upload')}</button><button class="icon-btn" data-action="help" title="快捷键与帮助" aria-label="帮助">${icon('help')}</button><button class="icon-btn" data-action="settings" title="设置" aria-label="设置">${icon('gear')}</button></header>
@@ -121,6 +122,7 @@ function renderLibrary(){
  run(refreshStorage);
 }
 function preview(d){
+ const dt=P.docTypeOf(d);if(dt?.preview){try{return dt.preview(d);}catch(e){console.warn('preview',e);}}
  const p=d.pages[0]||{};
  if(d.kind==='discussion'){const first=roots(p).slice().sort((a,b)=>(a.floorNumber||0)-(b.floorNumber||0))[0];const text=postPlain((first?.body||'').slice(0,1200));const pics=(first?.images||[]).length;const s=discussionStats(d);return `<div class="pv pv-post"><div class="pv-post-head"><span class="pv-avatar cookie">我</span><span class="pv-floor">1楼</span></div><p>${E(text.slice(0,140))||(pics?`${pics} 张图片`:'')}</p><span class="pv-post-stats">${s.threads} 个楼层 · ${s.replies} 条回复</span></div>`;}
  if(d.kind==='pdf')return `<div class="pv pv-pdf"><div class="pv-sheet"><i></i><i></i><i></i><i class="pv-mark"></i><i></i><i></i><i></i></div></div>`;
@@ -130,40 +132,39 @@ function preview(d){
  return `<div class="pv pv-note tone-${tone} paper-${paper}">${stamp?`<span class="pv-stamp">${icon('time')}${stamp.md}</span>`:''}${d.guide?`<span class="pv-stamp">${icon('spark')}使用指南</span>`:''}</div>`;
 }
 function card(d,snippet){
- const t=typeInfo(d),stats=d.kind==='discussion'?discussionStats(d):null;
- const amount=stats?`${stats.threads} 楼 · ${stats.replies} 回复`:`${d.pages.length} 页`;
+ const t=typeInfo(d),stats=d.kind==='discussion'?discussionStats(d):null;let amount;try{amount=P.docTypeOf(d)?.amount?.(d);}catch{}
+ amount=amount||(stats?`${stats.threads} 楼 · ${stats.replies} 回复`:`${d.pages.length} 页`);
  return `<article class="doc-card" tabindex="0" role="button" aria-label="打开 ${E(d.title)}" data-action="open" data-id="${d.id}">
- <div class="doc-preview">${preview(d)}${d.favorite?`<span class="doc-fav" title="已收藏">${icon('star')}</span>`:''}</div>
+ <div class="doc-preview">${preview(d)}${t.missing?`<span class="doc-missing">${icon('plugin')}${t.owner?`需要「${E(t.label)}」插件`:'需要安装插件'}</span>`:''}${d.favorite?`<span class="doc-fav" title="已收藏">${icon('star')}</span>`:''}</div>
  <div class="doc-info">${typeIcon(d)}<div class="doc-text"><h3 class="doc-name">${E(d.title)}</h3><div class="doc-meta"><span>${E(t.label)}</span><span>${amount}</span><span>${relative(d.updatedAt)}</span><span class="doc-folder">${E(d.folder||'未分类')}</span></div>${snippet?`<p class="doc-snippet">${E(snippet.pre)}<mark>${E(snippet.hit)}</mark>${E(snippet.post)}</p>`:''}</div><button class="icon-btn doc-menu" data-action="doc-menu" data-id="${d.id}" title="更多操作" aria-label="${E(d.title)} 的更多操作">${icon('more-v')}</button></div>
 </article>`;
 }
 const TEMPLATES=[['blank','空白'],['ruled','横线'],['grid','方格'],['dot','点阵']];
 function templateChoices(template){return `<div class="template-grid" role="radiogroup" aria-label="内页样式">${TEMPLATES.map(([v,l])=>`<button type="button" class="template-choice ${v===template?'active':''}" data-template="${v}" role="radio" aria-checked="${v===template}"><div class="template-preview ${v}"></div><span>${l}</span></button>`).join('')}</div>`;}
 function bindChoices(attr,set){modal.querySelectorAll(`[data-${attr}]`).forEach(b=>b.onclick=()=>{set(b.getAttribute('data-'+attr));modal.querySelectorAll(`[data-${attr}]`).forEach(x=>{x.classList.toggle('active',x===b);x.setAttribute('aria-checked',x===b);});});}
-function pageModeChoice(mode='infinite'){return `<div class="segmented" role="radiogroup" aria-label="纸张范围"><label><input type="radio" name="mode" value="infinite" ${mode==='infinite'?'checked':''}><span>${icon('check')}无限画布</span></label><label><input type="radio" name="mode" value="paged" ${mode==='paged'?'checked':''}><span>${icon('check')}A4 分页</span></label></div>`;}
+function pageModeChoice(mode='infinite',modes=['infinite','paged']){if(!modes.includes(mode))mode=modes[0];return `<div class="segmented" role="radiogroup" aria-label="纸张范围">${modes.map(m=>`<label><input type="radio" name="mode" value="${m}" ${mode===m?'checked':''}><span>${icon('check')}${m==='infinite'?'无限画布':'A4 分页'}</span></label>`).join('')}</div>`;}
 async function newNotebook(kind){
- let template='dot',color='olive',canvasType=kind==='time'||kind==='plain'?kind:S.view==='plain'?'plain':'time';
+ const types=P.canvasTypes();if(!types.length){toast('没有启用任何画布插件。请在「设置 → 插件」中启用。',true);return;}
+ let ct=types.find(c=>c.id===kind)||types.find(c=>c.id===S.view)||types[0],template=ct.defaultTemplate,color='olive';
+ const modeHTML=(keep)=>pageModeChoice(keep&&ct.paperModes.includes(keep)?keep:ct.paperModes.includes('infinite')?'infinite':'paged',ct.paperModes);
+ const hint=()=>ct.paperModes.length===1&&ct.paperModes[0]==='paged'?`${E(ct.title)}使用 A4 分页。`:'无限画布从左上角开始，随内容向右、向下延伸；A4 分页适合打印。';
  dialog('新建画布',`<label class="field-label" for="note-name">名称</label><input class="field-input" id="note-name" name="title" placeholder="给这本笔记起个名字" value="未命名笔记" maxlength="100" required autocomplete="off">
- <div class="field-label">画布类型</div><div class="choice-cards" role="radiogroup" aria-label="画布类型">
-  <button type="button" class="choice-card ${canvasType==='time'?'active':''}" data-canvas-kind="time" role="radio" aria-checked="${canvasType==='time'}"><span class="choice-icon">${icon('time')}</span><span><strong>时间画布</strong><small>创建时自动写入日期和时间，新增页也会标记</small></span></button>
-  <button type="button" class="choice-card ${canvasType==='plain'?'active':''}" data-canvas-kind="plain" role="radio" aria-checked="${canvasType==='plain'}"><span class="choice-icon">${icon('draw')}</span><span><strong>普通画布</strong><small>不带时间，需要时用「日期」按钮插入</small></span></button>
- </div>
- <div class="field-row"><div><div class="field-label">纸张范围</div>${pageModeChoice('infinite')}</div><div><label class="field-label" for="note-folder">文件夹</label><select class="field-input" name="folder" id="note-folder"><option value="">未分类</option>${S.folders.map(f=>`<option value="${E(f)}" ${S.view==='folder:'+f?'selected':''}>${E(f)}</option>`).join('')}</select></div></div>
- <p class="field-hint">无限画布从左上角开始，随内容向右、向下延伸；A4 分页适合打印。</p>
+ <div class="field-label">画布类型</div><div class="choice-cards" role="radiogroup" aria-label="画布类型">${types.map(c=>`<button type="button" class="choice-card ${c.id===ct.id?'active':''}" data-canvas-kind="${E(c.id)}" role="radio" aria-checked="${c.id===ct.id}"><span class="choice-icon">${pIcon(c.icon,c.pluginId)}</span><span><strong>${E(c.title)}</strong><small>${E(c.subtitle)}</small></span></button>`).join('')}</div>
+ <div class="field-row"><div><div class="field-label">纸张范围</div><div id="paper-mode">${modeHTML()}</div></div><div><label class="field-label" for="note-folder">文件夹</label><select class="field-input" name="folder" id="note-folder"><option value="">未分类</option>${S.folders.map(f=>`<option value="${E(f)}" ${S.view==='folder:'+f?'selected':''}>${E(f)}</option>`).join('')}</select></div></div>
+ <p class="field-hint" id="paper-hint">${hint()}</p>
  <div class="field-label">内页样式</div>${templateChoices(template)}
  <div class="field-label">线距</div>${spacingChoice('standard')}
  <div class="field-label">封面颜色</div><div class="cover-choices" role="radiogroup" aria-label="封面颜色">${TONES.map(v=>`<button type="button" class="cover-choice cover-${v} ${v===color?'active':''}" data-cover="${v}" role="radio" aria-checked="${v===color}" aria-label="${{olive:'绿色',sand:'黄色',blue:'蓝色',pink:'粉色'}[v]}" title="${{olive:'绿色',sand:'黄色',blue:'蓝色',pink:'粉色'}[v]}">${icon('check')}</button>`).join('')}</div>
- ${actions('创建')}`,{submit:async f=>{const title=f.get('title').trim();if(!title)return;const d={id:uid(),title,kind:'notebook',canvasType,color,folder:f.get('folder'),createdAt:Date.now(),updatedAt:Date.now(),pages:[makeCanvasPage(template,f.get('mode')==='infinite',canvasType,{spacing:f.get('spacing'),title:DEFAULT_TITLES.includes(title)?'':title})],lastPage:0};await store.save(d);S.docs.push(d);closeModal();await openDoc(d.id);toast(canvasType==='time'?'时间画布已创建，日期和时间已写入页面':'画布已创建');}});
- bindChoices('template',v=>template=v);bindChoices('cover',v=>color=v);bindChoices('canvas-kind',v=>canvasType=v);
+ ${actions('创建')}`,{submit:async f=>{const title=f.get('title').trim();if(!title)return;const d={id:uid(),title,kind:'notebook',canvasType:ct.id,color,folder:f.get('folder'),createdAt:Date.now(),updatedAt:Date.now(),pages:[makeCanvasPage(template,f.get('mode')==='infinite'&&ct.paperModes.includes('infinite'),ct.id,{spacing:f.get('spacing'),title:DEFAULT_TITLES.includes(title)?'':title})],lastPage:0};await store.save(d);S.docs.push(d);closeModal();await openDoc(d.id);toast(ct.createdToast||'画布已创建');}});
+ bindChoices('template',v=>template=v);bindChoices('cover',v=>color=v);
+ bindChoices('canvas-kind',v=>{const keep=modal.querySelector('input[name=mode]:checked')?.value;ct=types.find(c=>c.id===v)||ct;$('#paper-mode').innerHTML=modeHTML(keep);$('#paper-hint').textContent=hint();});
  $('#note-name').select();
 }
 function newChooser(){
- dialog('新建',`<div class="menu-choices">
- <button type="button" data-new="time"><span class="menu-icon tone-primary">${icon('time')}</span><span>时间画布<small>创建即记录日期和时间，新增页自动标记</small></span></button>
- <button type="button" data-new="plain"><span class="menu-icon tone-secondary">${icon('draw')}</span><span>普通画布<small>不带自动时间，可手动插入日期</small></span></button>
- <button type="button" data-new="discussion"><span class="menu-icon tone-tertiary">${icon('post')}</span><span>帖子<small>一页一个帖子，可连发多个楼层并逐层回复</small></span></button>
- <button type="button" data-new="import"><span class="menu-icon tone-neutral">${icon('upload')}</span><span>导入文件<small>PDF、EPUB、TXT 等电子书，或 .inknote 备份</small></span></button></div>`);
- modal.querySelectorAll('[data-new]').forEach(b=>b.onclick=()=>run(async()=>{const v=b.dataset.new;closeModal();if(v==='discussion')return newDiscussion();if(v==='import')return $('#file-input').click();return newNotebook(v);}));
+ const items=P.menuItems();
+ if(!items.length){dialog('新建',`<p class="help-note">还没有可用的新建项目：能新建什么由插件决定。</p><div class="menu-choices"><button type="button" id="open-plugins">${icon('plugin')}<span>打开插件管理<small>启用或安装画布、帖子、阅读等插件</small></span></button></div>`);$('#open-plugins').onclick=()=>run(async()=>{closeModal();await pluginManager();});return;}
+ dialog('新建',`<div class="menu-choices">${items.map(m=>`<button type="button" data-new="${E(m.id)}" data-plugin="${E(m.pluginId)}"><span class="menu-icon tone-${E(m.tone)}">${pIcon(m.icon,m.pluginId)}</span><span>${E(m.title)}<small>${E(m.subtitle)}</small></span></button>`).join('')}</div>`);
+ modal.querySelectorAll('[data-new]').forEach(b=>b.onclick=()=>run(async()=>{const m=items.find(x=>x.id===b.dataset.new&&x.pluginId===b.dataset.plugin);closeModal();await m?.run();}));
 }
 async function showDocMenu(id){const d=S.docs.find(x=>x.id===id);if(!d)return;
  dialog(d.title,`<div class="menu-choices"><button type="button" data-menu="open">${icon('chevron')}打开</button><button type="button" data-menu="rename">${icon('edit')}重命名</button><button type="button" data-menu="favorite">${icon('star')}${d.favorite?'取消收藏':'收藏'}</button><button type="button" data-menu="move">${icon('folder')}移动到文件夹</button><button type="button" data-menu="backup">${icon('download')}<span>导出可编辑备份<small>.inknote 文件，保留原文、笔迹、图片和回复关系</small></span></button><div class="menu-sep"></div><button type="button" data-menu="delete" class="danger">${icon('trash')}删除笔记</button></div>`,{subtitle:`${typeInfo(d).label} · 创建于 ${formatTimestamp(d.createdAt)}${d.folder?' · '+d.folder:''}`});
@@ -200,10 +201,11 @@ function themeDialog(){
 }
 async function renameDoc(id=S.active){const d=S.docs.find(x=>x.id===id);if(!d)return;const value=await ask('重命名','名称',d.title);if(value){const old=d.title,p0=d.pages[0];if(d.kind==='notebook'&&p0&&p0.template!=='guide'&&p0.sourceIndex===null&&p0.title!==undefined&&(p0.title===old||!p0.title)){p0.title=value;if(S.active===id){updateThumbTitle(0,value);if(S.page===0)run(()=>showPage({resetScroll:false}));updateThumb(0);}}d.title=value;d.updatedAt=Date.now();await store.save(d);if(S.active){refreshTitle();if(d.kind==='discussion')$('.discussion-intro h1').textContent=d.title;}else renderLibrary();}}
 function moveDoc(id){const d=S.docs.find(x=>x.id===id);dialog('移动到文件夹',`<label class="field-label" for="target-folder">文件夹</label><select class="field-input" id="target-folder" name="folder"><option value="">未分类</option>${S.folders.map(f=>`<option ${d.folder===f?'selected':''} value="${E(f)}">${E(f)}</option>`).join('')}</select>${actions('移动')}`,{submit:async f=>{d.folder=f.get('folder');await store.save(d);closeModal();if(!S.active)renderLibrary();toast('笔记已移动');}});}
-function deleteDoc(id){const d=S.docs.find(x=>x.id===id);dialog('删除这本笔记？',`<p class="help-note">“${E(d.title)}”将从本机移除，无法撤销。需要的话，先在「⋯」菜单里导出一份 .inknote 备份。</p>${actions('删除',true)}`,{submit:async()=>{await flush();await store.remove(id);S.docs=S.docs.filter(x=>x.id!==id);S.tabs=S.tabs.filter(x=>x!==id);history.delete(id);closeModal();if(S.active===id||!S.active)renderLibrary();toast('笔记已删除');markExchangeDeleted(id);}});}
+function deleteDoc(id){const d=S.docs.find(x=>x.id===id);dialog('删除这本笔记？',`<p class="help-note">“${E(d.title)}”将从本机移除，无法撤销。${EXCHANGE.status?.folder?'笔记库文件夹里对应的文件会移到回收站。':'需要的话，先在「⋯」菜单里导出一份 .inknote 备份。'}</p>${actions('删除',true)}`,{submit:async()=>{await flush();await store.remove(id);S.docs=S.docs.filter(x=>x.id!==id);S.tabs=S.tabs.filter(x=>x!==id);history.delete(id);closeModal();if(S.active===id||!S.active)renderLibrary();toast('笔记已删除');markExchangeDeleted(id);}});}
 
 async function openDoc(id){
  if(S.split?.id===id){S.split.frame.focus();toast('这本笔记正在右侧分屏中，可以直接在右侧编辑');return;}
+ const d0=S.docs.find(x=>x.id===id);if(d0&&!P.docTypeOf(d0)){pluginMissing(d0);return;}
  const ticket=++navigation;finishText();await flush();const d=S.docs.find(x=>x.id===id);if(!d||ticket!==navigation)return;
  const switching=S.active!==id;
  S.active=id;S.page=clamp(d.lastPage||0,0,d.pages.length-1);S.selection.clear();S.findOpen=false;S.find=[];S.findQuery='';S.commentDraft=null;S.activeThread=null;
@@ -222,7 +224,7 @@ function titlebar(back,actionsHTML,lead=''){
 function bindTabRename(){const strip=$('#tab-strip');if(strip)strip.ondblclick=e=>{if(e.target.closest('.doc-tab.active')&&!e.target.closest('.tab-close'))run(()=>renameDoc());};}
 function fillRange(el){const min=+el.min,max=+el.max,v=+el.value;el.style.setProperty('--fill',((v-min)/(max-min)*100||0)+'%');}
 function renderEditor(){
- const d=doc();
+ extUnmount();const d=doc();
  view.innerHTML=`<main class="editor">${titlebar(['home','返回笔记库'],`<button class="icon-btn" data-action="undo" title="撤销 (Ctrl Z)" aria-label="撤销">${icon('undo')}</button><button class="icon-btn" data-action="redo" title="重做 (Ctrl Shift Z)" aria-label="重做">${icon('redo')}</button><span class="bar-sep"></span><label class="icon-toggle" title="仅用笔书写：开启后只有触控笔能书写，手指用于滚动"><input type="checkbox" id="pen-only" ${S.penOnly?'checked':''} aria-label="仅用笔书写">${icon('pen')}</label><button class="icon-btn" data-action="date" title="在当前页插入日期" aria-label="插入日期">${icon('date-add')}</button><button class="icon-btn comment-pane-toggle" data-action="comments" title="页面批注" aria-label="页面批注">${icon('comment')}<span class="count-badge" id="comment-count">${roots(page()).length}</span></button><button class="icon-btn" data-action="find" title="查找原文与批注 (Ctrl F)" aria-label="查找">${icon('search')}</button><button class="btn tonal" data-action="export" title="导出 PDF 或备份 (Ctrl Shift E)">${icon('download')}<span class="btn-label">导出</span></button><button class="icon-btn" data-action="editor-menu" title="页面与笔记操作" aria-label="更多操作">${icon('more-v')}</button>`,`<button class="icon-btn ${S.sidebar?'on':''}" data-action="toggle-sidebar" title="页面缩略图" aria-label="页面缩略图" aria-pressed="${S.sidebar}">${icon('pages')}</button>`)}
  <div class="editor-body">
   <aside class="page-sidebar ${S.sidebar?'':'collapsed'}" aria-label="页面"><div class="page-side-title"><select id="thumb-filter" aria-label="页面筛选"><option value="all">全部页面</option><option value="bookmark">书签页</option></select><span class="spacer"></span><span class="count-badge" id="side-page-count">${d.pages.length}</span></div><div class="page-thumbs" id="page-thumbs"></div><div class="page-side-bottom"><button class="btn tonal block" data-action="add-page">${icon('plus')}添加页面</button></div></aside>
@@ -252,6 +254,7 @@ function renderEditor(){
  $('#workspace').addEventListener('pointerdown',ghostPointerDown);
  viewportObserver?.disconnect();viewportObserver=new ResizeObserver(()=>{if(page()?.infinite&&!gesture)paintInfinite(false);});viewportObserver.observe($('#workspace'));
  $('#workspace').addEventListener('wheel',e=>{if(e.ctrlKey){e.preventDefault();run(()=>changeZoom(e.deltaY>0?-.1:.1));return;}flipOnWheel(e);},{passive:false});
+ const ext=P.pageExtension(d);if(ext?.mount){try{ext.mount();mountedExt=ext;}catch(e){console.error('plugin mount',e);}}
 }
 function refreshTitle(){
  if(!S.active)return;const title=$('.editor-title');if(title)title.textContent=doc().title;
@@ -286,9 +289,9 @@ async function renderThumbnails(){
 async function paintThumb(p,pdf){
  const canvas=document.querySelector(`[data-thumb="${p.id}"]`);if(!canvas)return;
  const work=document.createElement('canvas');
- if(p.annotations.some(a=>a.type==='rich'))await prepareRich(p.annotations,1);
- if(p.infinite){canvas.width=112;canvas.height=150;const c=canvas.getContext('2d'),e=contentExtent(p),scale=Math.min(108/e.width,146/e.height);c.fillStyle='#ffffff';c.fillRect(0,0,112,150);c.save();c.translate(2,2);c.scale(scale,scale);drawInfinitePaper(c,p,{x:0,y:0,width:e.width,height:e.height});p.annotations.forEach(a=>drawAnnotation(c,a));c.restore();return;}
- try{await renderBackground(work,p,pdf,{cssWidth:112,pixelRatio:1.4});const c=work.getContext('2d');c.save();c.scale(work.width/p.width,work.height/p.height);p.annotations.forEach(a=>drawAnnotation(c,a));c.restore();if(!canvas.isConnected)return;canvas.width=work.width;canvas.height=work.height;canvas.getContext('2d').drawImage(work,0,0);}catch(e){console.warn('Thumbnail:',e.message);}
+ const list=displayAnns(p);if(list.some(a=>a.type==='rich'))await prepareRich(list,1);
+ if(p.infinite){canvas.width=112;canvas.height=150;const c=canvas.getContext('2d'),e=contentExtent(p),scale=Math.min(108/e.width,146/e.height);c.fillStyle='#ffffff';c.fillRect(0,0,112,150);c.save();c.translate(2,2);c.scale(scale,scale);drawInfinitePaper(c,p,{x:0,y:0,width:e.width,height:e.height});list.forEach(a=>drawAnnotation(c,a));c.restore();return;}
+ try{await renderBackground(work,p,pdf,{cssWidth:112,pixelRatio:1.4});const c=work.getContext('2d');c.save();c.scale(work.width/p.width,work.height/p.height);list.forEach(a=>drawAnnotation(c,a));c.restore();if(!canvas.isConnected)return;canvas.width=work.width;canvas.height=work.height;canvas.getContext('2d').drawImage(work,0,0);}catch(e){console.warn('Thumbnail:',e.message);}
 }
 function updateThumb(i){const p=doc()?.pages[i];if(p)run(()=>paintThumb(p,S.pdf));}
 function updatePageCount(){if(!S.active||!$('#page-counter'))return;$('#page-counter').textContent=`${S.page+1} / ${doc().pages.length}`;$('#side-page-count').textContent=doc().pages.length;$('[data-action="prev"]').disabled=S.page===0;$('[data-action="next"]').disabled=S.page===doc().pages.length-1;document.querySelectorAll('.page-thumb').forEach(t=>t.classList.toggle('active',+t.dataset.index===S.page));}
@@ -307,7 +310,7 @@ async function showPage({resetScroll=true,keepStack=false,prefill=null,at='top'}
  const stacked=ws.classList.contains('continuous');
  if(resetScroll){ws.scrollLeft=0;ws.scrollTop=stacked?(at==='bottom'?wrapper.offsetTop+height-ws.clientHeight+24:wrapper.offsetTop-16):(at==='bottom'?ws.scrollHeight:0);}
  else if(rel!==null)ws.scrollTop=wrapper.offsetTop+rel*height;
- updatePageCount();renderComments();placeTitleInput();$('#zoom-value').textContent=Math.round(S.zoom*100)+'%';
+ updatePageCount();renderComments();placeTitleInput();$('#zoom-value').textContent=Math.round(S.zoom*100)+'%';extCall('pageShown');
  const bg=$('#pdf-canvas');
  if(prefill&&prefill.width===Math.round(width*ratio)){bg.width=prefill.width;bg.height=prefill.height;bg.getContext('2d',{alpha:false}).drawImage(prefill,0,0);$('#page-loading').hidden=true;drawInk();return;}
  $('#page-loading').hidden=false;drawInk();
@@ -316,7 +319,7 @@ async function showPage({resetScroll=true,keepStack=false,prefill=null,at='top'}
  catch(e){if(epoch===S.renderEpoch){$('#page-loading').textContent='这一页加载失败，请切换页面重试。';throw e;}}
 }
 function point(e){const p=page(),r=(p.infinite?$('#page-wrapper'):$('#ink-canvas')).getBoundingClientRect();const q={x:p.infinite?(e.clientX-r.left)/S.zoom:(e.clientX-r.left)*p.width/r.width,y:p.infinite?(e.clientY-r.top)/S.zoom:(e.clientY-r.top)*p.height/r.height,p:e.pointerType==='pen'?clamp(e.pressure||.5,.05,1):.75};return p.infinite?nonnegative(q):q;}
-function drawInk(){const canvas=$('#ink-canvas'),p=page();if(!canvas||!p)return;const c=canvas.getContext('2d');c.clearRect(0,0,canvas.width,canvas.height);c.save();if(p.infinite&&S.viewport){const v=S.viewport;c.scale(v.scale,v.scale);c.translate(-v.x,-v.y);visibleAnnotations(p.annotations,v).forEach(a=>{if(a.id!==S.editingText&&a.type!=='rich')drawAnnotation(c,a);});}else{c.scale(canvas.width/p.width,canvas.height/p.height);p.annotations.forEach(a=>{if(a.id!==S.editingText&&a.type!=='rich')drawAnnotation(c,a);});}if(gesture?.annotation)drawAnnotation(c,gesture.annotation);
+function drawInk(){const canvas=$('#ink-canvas'),p=page();if(!canvas||!p)return;const c=canvas.getContext('2d');c.clearRect(0,0,canvas.width,canvas.height);c.save();if(p.infinite&&S.viewport){const v=S.viewport;c.scale(v.scale,v.scale);c.translate(-v.x,-v.y);visibleAnnotations(p.annotations,v).forEach(a=>{if(a.id!==S.editingText&&a.type!=='rich')drawAnnotation(c,a);});}else{c.scale(canvas.width/p.width,canvas.height/p.height);const ext=P.pageExtension(doc());if(ext?.underlay&&p.ext?.[ext.key]){try{ext.underlay(c,p,{width:canvas.width,height:canvas.height});}catch(e){console.error('plugin underlay',e);}}p.annotations.forEach(a=>{if(a.id!==S.editingText&&a.type!=='rich')drawAnnotation(c,a);});}if(gesture?.annotation)drawAnnotation(c,gesture.annotation);
  if(S.selection.size){const b=selectionBounds();if(b){c.strokeStyle=S.accent.primary;c.fillStyle=S.accent.primary+'10';c.lineWidth=1.2/S.zoom;c.setLineDash([5/S.zoom,4/S.zoom]);c.fillRect(b.x-5,b.y-5,b.w+10,b.h+10);c.strokeRect(b.x-5,b.y-5,b.w+10,b.h+10);c.setLineDash([]);}}
  if(gesture?.mode==='select'){const b=selectionRect(gesture.start,gesture.last);c.strokeStyle=S.accent.primary;c.fillStyle=S.accent.primary+'16';c.lineWidth=1/S.zoom;c.setLineDash([5/S.zoom,4/S.zoom]);c.fillRect(b.x,b.y,b.w,b.h);c.strokeRect(b.x,b.y,b.w,b.h);c.setLineDash([]);}
  if(gesture?.mode==='erase'&&gesture.ring){const r=S.eraserSize/2/S.zoom;c.strokeStyle=S.accent.primary;c.fillStyle=S.accent.primary+'18';c.lineWidth=1.4/S.zoom;c.beginPath();c.arc(gesture.last.x,gesture.last.y,r,0,Math.PI*2);c.fill();c.stroke();}
@@ -518,8 +521,8 @@ async function fitIfOverflow(){const p=page(),w=$('#workspace');if(p&&!p.infinit
 async function fit(){const w=$('#workspace');S.zoom=page().infinite?1:clamp((w.clientWidth-65)/page().width,.3,1.8);await showPage();}
 async function goHome(){if(EMBED){finishText();await flush();host()?.closeSplit();return;}const ticket=++navigation;finishText();await flush();if(S.split)await closeSplit();if(ticket!==navigation)return;S.pdf=null;renderLibrary();await releasePdfs(null);}
 async function addPage(){
- const cur=page();let template=titleEditable(cur)?cur.template:'dot';const mode=cur.infinite?'infinite':'paged';
- dialog('添加页面',`<div class="field-label">纸张范围</div>${pageModeChoice(mode)}<div class="field-label">内页样式</div>${templateChoices(template)}<div class="field-label">线距</div>${spacingChoice(titleEditable(cur)&&cur.spacing||'standard')}<p class="field-hint">${doc().canvasType==='time'?'时间画布的新页面会自动写入日期和时间。':'新页面插入到当前页之后，可以在页面顶部写标题。'}</p>${actions('插入到当前页后')}`,{submit:async f=>{const before=pageSnapshot();doc().pages.splice(S.page+1,0,makeCanvasPage(template,f.get('mode')==='infinite',doc().canvasType||'plain',{spacing:f.get('spacing'),margin:titleEditable(cur)&&cur.template===template?cur.margin:undefined}));S.page++;remember(before);closeModal();renderThumbList();await showPage();await renderThumbnails();}});
+ const cur=page(),ct=P.canvasType(doc().canvasType||'plain'),modes=ct?.paperModes||['infinite','paged'];let template=titleEditable(cur)?cur.template:'dot';const mode=cur.infinite?'infinite':'paged';
+ dialog('添加页面',`<div class="field-label">纸张范围</div>${pageModeChoice(mode,modes)}<div class="field-label">内页样式</div>${templateChoices(template)}<div class="field-label">线距</div>${spacingChoice(titleEditable(cur)&&cur.spacing||'standard')}<p class="field-hint">${E(ct?.addPageHint||(doc().canvasType==='time'?'时间画布的新页面会自动写入日期和时间。':'新页面插入到当前页之后，可以在页面顶部写标题。'))}</p>${actions('插入到当前页后')}`,{submit:async f=>{const before=pageSnapshot();doc().pages.splice(S.page+1,0,makeCanvasPage(template,f.get('mode')==='infinite'&&modes.includes('infinite'),doc().canvasType||'plain',{spacing:f.get('spacing'),margin:titleEditable(cur)&&cur.template===template?cur.margin:undefined}));S.page++;remember(before);closeModal();renderThumbList();await showPage();await renderThumbnails();}});
  bindChoices('template',v=>template=v);
 }
 function editorMenu(){const p=page(),n=doc().pages.length,canvas=titleEditable(p);dialog('页面与笔记',`<div class="menu-choices"><button type="button" data-page-menu="rename-page">${icon('title')}重命名页面</button>${canvas?`<button type="button" data-page-menu="setup">${icon('spacing')}<span>纸张样式<small>横线、方格、点阵，线距宽窄，左侧边距线</small></span></button>`:''}<button type="button" data-page-menu="date" class="narrow-only">${icon('date-add')}插入日期和时间</button><button type="button" data-page-menu="find" class="narrow-only">${icon('search')}查找原文与批注</button><button type="button" data-page-menu="bookmark">${icon('bookmark')}${p.bookmark?'移除当前页书签':'给当前页加书签'}</button><button type="button" data-page-menu="duplicate">${icon('duplicate')}复制当前页</button><button type="button" data-page-menu="add">${icon('plus')}添加页面</button><button type="button" data-page-menu="up" ${S.page===0?'disabled':''}>${icon('up')}页面上移</button><button type="button" data-page-menu="down" ${S.page===n-1?'disabled':''}>${icon('down-arrow')}页面下移</button><div class="menu-sep"></div><button type="button" data-page-menu="rename">${icon('edit')}重命名笔记</button>${EMBED?'':`<button type="button" data-page-menu="split">${icon('split')}${S.split?'关闭分屏':'在右侧分屏打开另一本'}</button>`}<button type="button" data-page-menu="backup">${icon('download')}<span>导出可编辑备份<small>.inknote 文件，可在其他电脑导入继续编辑</small></span></button><button type="button" data-page-menu="help">${icon('help')}快捷键与帮助</button><div class="menu-sep"></div><button type="button" data-page-menu="clear" class="danger">${icon('eraser')}清除当前页全部批注</button><button type="button" data-page-menu="delete" class="danger" ${n===1?'disabled':''}>${icon('trash')}删除当前页</button></div>`,{subtitle:`第 ${S.page+1} 页，共 ${n} 页${p.title?' · '+p.title:''}`});
@@ -540,7 +543,7 @@ async function download(data,name,mime){
 }
 function filename(s){return s.replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').replace(/[. ]+$/,'').slice(0,100)||'InkNote';}
 function exportDialog(){finishText();const d=doc();dialog('导出',`<div class="menu-choices"><button type="button" data-export="pdf">${icon('file')}<span>导出 PDF<small>${d.kind==='pdf'?'保留原文和可检索文字，批注合并为图层':'无限画布按内容分成 A4 页导出'}</small></span></button><button type="button" data-export="backup">${icon('book')}<span>导出可编辑备份 · .inknote<small>包含原始文档、可编辑笔迹、图片与页面设置</small></span></button></div><p class="help-note">想继续修改笔迹，请保留 .inknote 备份；PDF 适合阅读与分享。</p>`);modal.querySelectorAll('[data-export]').forEach(b=>b.onclick=()=>run(async()=>{const type=b.dataset.export;closeModal();if(type==='backup')return exportBackup(doc());await doExport();}));}
-async function doExport(){finishText();await flush();const d=doc();const btn=$('[data-action="export"]');if(btn)btn.disabled=true;toast('正在生成 PDF…');try{const bytes=await exportPdf(structuredClone(d),()=>{},{pdf:S.pdf,prepareRich});if(await download(bytes,filename(d.title)+'-批注.pdf','application/pdf'))toast('PDF 已导出');}finally{if(btn?.isConnected)btn.disabled=false;}}
+async function doExport(){finishText();await flush();const d=doc();const btn=$('[data-action="export"]');if(btn)btn.disabled=true;toast('正在生成 PDF…');try{const copy=structuredClone(d);for(const q of copy.pages)q.annotations=displayAnns(q,copy);const bytes=await exportPdf(copy,()=>{},{pdf:S.pdf,prepareRich});if(await download(bytes,filename(d.title)+'-批注.pdf','application/pdf'))toast('PDF 已导出');}finally{if(btn?.isConnected)btn.disabled=false;}}
 function toBase64(bytes){let s='';for(let i=0;i<bytes.length;i+=32768)s+=String.fromCharCode(...bytes.subarray(i,i+32768));return btoa(s);}
 const BIG_BACKUP=48*1024*1024;
 // v1: JSON with the original base64-encoded (older versions read it). v2 (originals over 48 MB): a stored ZIP
@@ -564,7 +567,8 @@ async function readBackup(file){
  return {data,source:b64?async()=>Uint8Array.from(atob(b64),c=>c.charCodeAt(0)):null};
 }
 async function importFiles(files){
- if(importing){toast('正在导入，请稍候');return;}importing=true;let last;try{finishText();await flush();for(const f of files){try{if(f.size>1024*1024*1024)throw new Error('文件超过 1 GB，请先拆分再导入。');if(f.name.toLowerCase().endsWith('.inknote'))last=await importBackup(f);else if(f.name.toLowerCase().endsWith('.pdf')||f.type==='application/pdf')last=await importPdf(f);else if([...DIRECT_BOOK_FORMATS,...CONVERT_BOOK_FORMATS].includes(f.name.split('.').at(-1).toLowerCase()))last=await importEbook(f);else throw new Error('请选择 PDF、电子书、TXT 或 .inknote 备份。');}catch(e){failure(new Error(`${f.name}：${e.message}`));}}if(last){await openDoc(last);toast('导入完成，可以开始批注了');}}finally{importing=false;$('#file-input').value='';}}
+ if(importing){toast('正在导入，请稍候');return;}importing=true;let last;const paired=new Set(),list=[...files].sort((a,b)=>(/\.inknote$/i.test(b.name)?1:0)-(/\.inknote$/i.test(a.name)?1:0));
+ try{finishText();await flush();for(const f of list){if(paired.has(f))continue;try{if(f.size>1024*1024*1024)throw new Error('文件超过 1 GB，请先拆分再导入。');if(f.name.toLowerCase().endsWith('.inknote')){const {data,source}=await readBackup(f),mate=!source&&typeof data?.sourceFile==='string'?list.find(x=>x.name===data.sourceFile):null;if(mate)paired.add(mate);last=await importBackup(null,{data,source:mate?async()=>new Uint8Array(await mate.arrayBuffer()):source});}else{const imp=P.importerFor(f.name)||(f.type==='application/pdf'?P.importerFor('file.pdf'):null);if(!imp)throw new Error(unsupportedFile(f.name));const r=await imp.import(f);if(typeof r==='string')last=r;}}catch(e){failure(new Error(`${f.name}：${e.message}`));}}if(last){await openDoc(last);toast('导入完成，可以开始批注了');}}finally{importing=false;$('#file-input').value='';}}
 async function importPdf(file){
  toast('正在读取 '+file.name);const bytes=new Uint8Array(await file.arrayBuffer());const {pdf}=await readPdf(bytes,passwordPrompt);if(pdf.numPages>2000){await pdf.destroy();throw new Error('第一版最多支持 2000 页文档，请先拆分。');}
  const d={id:uid(),title:file.name.replace(/\.pdf$/i,''),kind:'pdf',color:'sand',folder:S.view.startsWith('folder:')?S.view.slice(7):'',createdAt:Date.now(),updatedAt:Date.now(),pages:[],lastPage:0};
@@ -577,17 +581,21 @@ async function importBackup(file,opts={}){
  const numeric=(v,min,max)=>Number.isFinite(v)&&v>=min&&v<=max;
  const color=v=>typeof v==='string'&&/^#[\da-f]{6}$/i.test(v);
  let count=0;
- const pages=raw.pages.map(p=>{if(!numeric(p.width,1,p.infinite?1e12:20000)||!numeric(p.height,1,p.infinite?1e12:20000)||!Array.isArray(p.annotations)||p.annotations.length>50000)throw new Error('页面数据无效。');if(p.sourceIndex!==null&&(!Number.isInteger(p.sourceIndex)||p.sourceIndex<0))throw new Error('PDF 页面索引无效。');
- const annotations=p.annotations.map(a=>{if(!['pen','marker','text','rect','rich'].includes(a.type)||!color(a.color))throw new Error('批注数据无效。');if(a.type==='rich'){if(typeof a.html!=='string'||a.html.length>400000||![a.x,a.y].every(n=>numeric(n,p.infinite?0:-100000,p.infinite?1e12:100000))||!numeric(a.w,20,5000)||!numeric(a.size,1,200))throw new Error('文本框数据无效。');const html=sanitizeHtml(a.html);return {id:uid(),type:'rich',color:a.color,x:a.x,y:a.y,w:a.w,h:numeric(a.h,0,1e6)?a.h:undefined,size:a.size,html,plain:richPlainText(html).slice(0,20000)};}if(a.type==='text'){if(typeof a.text!=='string'||a.text.length>10000||![a.x,a.y].every(n=>numeric(n,p.infinite?0:-100000,p.infinite?1e12:100000))||!numeric(a.size,1,200))throw new Error('文字批注无效。');return {id:uid(),type:'text',color:a.color,text:a.text,dateISO:typeof a.dateISO==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(a.dateISO)?a.dateISO:undefined,x:a.x,y:a.y,size:a.size,w:numeric(a.w,0,100000)?a.w:undefined,h:numeric(a.h,0,100000)?a.h:undefined};}
+ const checkAnnotation=(a,p)=>{if(!a||typeof a!=='object')throw new Error('批注数据无效。');if(!['pen','marker','text','rect','rich'].includes(a.type)||!color(a.color))throw new Error('批注数据无效。');if(a.type==='rich'){if(typeof a.html!=='string'||a.html.length>400000||![a.x,a.y].every(n=>numeric(n,p.infinite?0:-100000,p.infinite?1e12:100000))||!numeric(a.w,20,5000)||!numeric(a.size,1,200))throw new Error('文本框数据无效。');const html=sanitizeHtml(a.html);return {id:uid(),type:'rich',color:a.color,x:a.x,y:a.y,w:a.w,h:numeric(a.h,0,1e6)?a.h:undefined,size:a.size,html,plain:richPlainText(html).slice(0,20000)};}if(a.type==='text'){if(typeof a.text!=='string'||a.text.length>10000||![a.x,a.y].every(n=>numeric(n,p.infinite?0:-100000,p.infinite?1e12:100000))||!numeric(a.size,1,200))throw new Error('文字批注无效。');return {id:uid(),type:'text',color:a.color,text:a.text,dateISO:typeof a.dateISO==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(a.dateISO)?a.dateISO:undefined,x:a.x,y:a.y,size:a.size,w:numeric(a.w,0,100000)?a.w:undefined,h:numeric(a.h,0,100000)?a.h:undefined};}
  if(!numeric(a.width,.1,100))throw new Error('笔迹宽度无效。');if(a.type==='rect'){if(![a.x,a.y].every(n=>numeric(n,p.infinite?0:-100000,p.infinite?1e12:100000))||![a.w,a.h].every(n=>numeric(n,p.infinite?-1e12:-100000,p.infinite?1e12:100000)))throw new Error('形状数据无效。');return {id:uid(),type:'rect',color:a.color,width:a.width,x:a.x,y:a.y,w:a.w,h:a.h};}
- if(!Array.isArray(a.points)||!a.points.length||(count+=a.points.length)>2000000||!a.points.every(q=>[q.x,q.y].every(n=>numeric(n,p.infinite?0:-100000,p.infinite?1e12:100000))&&numeric(q.p,0,1)))throw new Error('笔迹数据无效或过大。');return {id:uid(),type:a.type,color:a.color,width:a.width,pressure:!!a.pressure,points:a.points.map(q=>({x:q.x,y:q.y,p:q.p}))};});
+ if(!Array.isArray(a.points)||!a.points.length||(count+=a.points.length)>2000000||!a.points.every(q=>[q.x,q.y].every(n=>numeric(n,p.infinite?0:-100000,p.infinite?1e12:100000))&&numeric(q.p,0,1)))throw new Error('笔迹数据无效或过大。');return {id:uid(),type:a.type,color:a.color,width:a.width,pressure:!!a.pressure,points:a.points.map(q=>({x:q.x,y:q.y,p:q.p}))};};
+ // Page extension data (e.g. the template × layer matrix) is checked by the plugin that owns it.
+ const extOf=p=>{if(!p.ext||typeof p.ext!=='object'||Array.isArray(p.ext))return undefined;const out={};for(const [k,v] of Object.entries(p.ext)){if(!/^[\w-]{1,40}$/.test(k))continue;const h=P.canvasTypes().map(c=>c.page).find(x=>x&&x.key===k);if(h)out[k]=h.validate(v,{annotation:a=>checkAnnotation(a,p)});else{if(JSON.stringify(v).length>64*1024*1024)throw new Error('页面扩展数据过大。');out[k]=structuredClone(v);}}return Object.keys(out).length?out:undefined;};
+ const pages=raw.pages.map(p=>{if(!numeric(p.width,1,p.infinite?1e12:20000)||!numeric(p.height,1,p.infinite?1e12:20000)||!Array.isArray(p.annotations)||p.annotations.length>50000)throw new Error('页面数据无效。');if(p.sourceIndex!==null&&(!Number.isInteger(p.sourceIndex)||p.sourceIndex<0))throw new Error('PDF 页面索引无效。');
+ const annotations=p.annotations.map(a=>checkAnnotation(a,p));
  if(p.infinite&&p.sourceIndex!==null)throw new Error('无限画布不能引用 PDF 页面');
- return {id:uid(),infinite:!!p.infinite,reading:p.reading?validateReading(p.reading):undefined,timeCanvas:!!p.timeCanvas,nextFloorNumber:Number.isSafeInteger(p.nextFloorNumber)&&p.nextFloorNumber>0&&p.nextFloorNumber<1e9?p.nextFloorNumber:undefined,canvasCreatedAt:p.timeCanvas&&numeric(p.canvasCreatedAt,0,8e15)?p.canvasCreatedAt:Date.now(),comments:validateComments(p.comments,new Map(p.annotations.map((a,i)=>[a.id,annotations[i].id]))),sourceIndex:p.sourceIndex,width:p.width,height:p.height,template:['blank','ruled','grid','dot','guide'].includes(p.template)?p.template:'blank',guide:numeric(p.guide,0,2)?p.guide:0,title:typeof p.title==='string'?p.title.slice(0,120):undefined,spacing:SPACINGS.includes(p.spacing)?p.spacing:undefined,margin:p.margin===true||undefined,annotations,bookmark:!!p.bookmark};});
+ return {id:uid(),infinite:!!p.infinite,reading:p.reading?validateReading(p.reading):undefined,timeCanvas:!!p.timeCanvas,nextFloorNumber:Number.isSafeInteger(p.nextFloorNumber)&&p.nextFloorNumber>0&&p.nextFloorNumber<1e9?p.nextFloorNumber:undefined,canvasCreatedAt:p.timeCanvas&&numeric(p.canvasCreatedAt,0,8e15)?p.canvasCreatedAt:Date.now(),comments:validateComments(p.comments,new Map(p.annotations.map((a,i)=>[a.id,annotations[i].id]))),sourceIndex:p.sourceIndex,width:p.width,height:p.height,template:['blank','ruled','grid','dot','guide'].includes(p.template)?p.template:'blank',guide:numeric(p.guide,0,2)?p.guide:0,title:typeof p.title==='string'?p.title.slice(0,120):undefined,spacing:SPACINGS.includes(p.spacing)?p.spacing:undefined,margin:p.margin===true||undefined,annotations,bookmark:!!p.bookmark,ext:extOf(p)};});
  if(sync&&typeof raw.folder==='string'&&raw.folder&&raw.folder.length<=40&&!S.folders.includes(raw.folder)){S.folders.push(raw.folder);await store.setSetting('folders',S.folders);}
- const d={id:sync&&typeof raw.id==='string'&&/^[\w-]{8,64}$/.test(raw.id)?raw.id:uid(),title:raw.title.slice(0,160),kind:pages.some(p=>p.sourceIndex!==null)?'pdf':pages.some(p=>p.reading)?'ebook':raw.kind==='discussion'?'discussion':'notebook',format:typeof raw.format==='string'?raw.format.slice(0,16):undefined,canvasType:raw.kind==='discussion'?'discussion':pages.some(p=>p.timeCanvas)?'time':'plain',color:['olive','sand','blue','pink'].includes(raw.color)?raw.color:'olive',folder:S.folders.includes(raw.folder)?raw.folder:'',favorite:!!raw.favorite,createdAt:(sync||raw.kind==='discussion')&&numeric(raw.createdAt,0,8e15)?raw.createdAt:Date.now(),updatedAt:sync&&numeric(raw.updatedAt,0,8e15)?raw.updatedAt:Date.now(),lastPage:0,pages};
+ const d={id:sync&&typeof raw.id==='string'&&/^[\w-]{8,64}$/.test(raw.id)?raw.id:uid(),title:raw.title.slice(0,160),kind:pages.some(p=>p.sourceIndex!==null)?'pdf':pages.some(p=>p.reading)?'ebook':raw.kind==='discussion'?'discussion':'notebook',format:typeof raw.format==='string'?raw.format.slice(0,16):undefined,canvasType:raw.kind==='discussion'?'discussion':raw.kind==='notebook'&&typeof raw.canvasType==='string'&&/^[a-z][\w-]{0,40}$/.test(raw.canvasType)&&raw.canvasType!=='discussion'?raw.canvasType:pages.some(p=>p.timeCanvas)?'time':'plain',color:['olive','sand','blue','pink'].includes(raw.color)?raw.color:'olive',folder:S.folders.includes(raw.folder)?raw.folder:'',favorite:!!raw.favorite,createdAt:(sync||raw.kind==='discussion')&&numeric(raw.createdAt,0,8e15)?raw.createdAt:Date.now(),updatedAt:sync&&numeric(raw.updatedAt,0,8e15)?raw.updatedAt:Date.now(),lastPage:0,pages};
  if(d.kind==='discussion')ensureDiscussionFloors(d.pages[0]);
- let bytes,pdf;if(pages.some(p=>p.sourceIndex!==null)){bytes=await source?.();if(!bytes)throw new Error('备份缺少原始 PDF。');if(!sync){({pdf}=await readPdf(bytes,passwordPrompt));for(const p of pages){if(p.sourceIndex===null)continue;if(p.sourceIndex>=pdf.numPages){await pdf.destroy();throw new Error('备份页面与原始 PDF 不匹配。');}const v=(await pdf.getPage(p.sourceIndex+1)).getViewport({scale:1});if(Math.abs(v.width-p.width)>1||Math.abs(v.height-p.height)>1){await pdf.destroy();throw new Error('备份页面尺寸不匹配。');}}}}
- if(d.kind==='ebook'&&source)bytes=await source();
+ const reuse=sync&&opts.keepBinary&&S.docs.some(x=>x.id===d.id);
+ let bytes,pdf;if(pages.some(p=>p.sourceIndex!==null)&&!reuse){bytes=await source?.();if(!bytes)throw new Error(typeof data.sourceFile==='string'?`这是「${data.sourceFile}」的批注文件，请把它和原文件一起选择导入，或放进笔记库文件夹。`:'备份缺少原始 PDF。');if(!sync){({pdf}=await readPdf(bytes,passwordPrompt));for(const p of pages){if(p.sourceIndex===null)continue;if(p.sourceIndex>=pdf.numPages){await pdf.destroy();throw new Error('备份页面与原始 PDF 不匹配。');}const v=(await pdf.getPage(p.sourceIndex+1)).getViewport({scale:1});if(Math.abs(v.width-p.width)>1||Math.abs(v.height-p.height)>1){await pdf.destroy();throw new Error('备份页面尺寸不匹配。');}}}}
+ if(d.kind==='ebook'&&source&&!reuse)bytes=await source();
  if(sync){if(bytes)await store.putBinary(d.id,bytes);await store.save(d);const i=S.docs.findIndex(x=>x.id===d.id);if(i>=0)S.docs[i]=d;else S.docs.push(d);history.delete(d.id);searchCache.delete(d.id);await releasePdfs(S.active===d.id?d.id:S.active);return d.id;}
  try{if(bytes)await store.putBinary(d.id,bytes);await store.save(d);}catch(e){await store.remove(d.id);if(pdf)await pdf.destroy();throw e;}S.docs.push(d);if(pdf)cachePdf(d.id,pdf);return d.id;
 }
@@ -597,9 +605,9 @@ async function findNext(delta){if(!S.find.length)return;S.findIndex=(S.findIndex
 function showHelp(){
  const keys=(...k)=>k.map(x=>`<kbd class="shortcut">${x}</kbd>`).join('');
  const rows=[['画笔 · 荧光笔 · 橡皮擦',keys('P','H','E')],['文字 · 矩形 · 套索',keys('T','R','L')],['拖动浏览 · 插入批注',keys('V','C')],['撤销 · 重做',keys('Ctrl Z','Ctrl Shift Z')],['保存',keys('Ctrl S')],['文档内查找 · 搜索笔记',keys('Ctrl F','Ctrl K')],['导出 PDF',keys('Ctrl Shift E')],['缩放页面',keys('Ctrl 滚轮')],['翻页',keys('PageUp','PageDown')],['复制 · 剪切 · 粘贴所选',keys('Ctrl C','Ctrl X','Ctrl V')],['复制一份 · 全选',keys('Ctrl D','Ctrl A')],['删除所选内容',keys('Delete')],['切换整笔 / 局部擦除',keys('E','再按 E')],['分屏打开另一本',keys('Ctrl \\')],['完成文字 · 发送回复',keys('Ctrl Enter')]];
- dialog('快捷键与帮助',`<div class="shortcut-list">${rows.map(([a,b])=>`<div class="menu-row"><span>${a}</span><span class="keys">${b}</span></div>`).join('')}</div><div class="help-grid"><div><strong>${icon('pen')}书写</strong><p>开启「仅用笔」后只有触控笔能书写，手指用于滚动。画笔会随笔压变化粗细。</p></div><div><strong>${icon('lasso')}套索</strong><p>框出内容后可拖动、复制、粘贴或删除；双击文字直接修改。</p></div><div><strong>${icon('title')}页面标题</strong><p>在页面顶部写标题，日期和时间显示在标题下方。第 1 页的标题会同步成笔记名称。</p></div><div><strong>${icon('split')}分屏</strong><p>点击顶栏的分屏按钮，在右侧打开另一本笔记，两边各自编辑、各自保存。</p></div><div><strong>${icon('eraser')}橡皮擦</strong><p>「整笔」碰到就删除整条笔迹；「局部」只擦掉经过的部分。</p></div><div><strong>${icon('comment')}批注与帖子</strong><p>批注固定在页面或笔迹上；帖子一页一帖，可多楼层、逐层回复。</p></div><div><strong>${icon('shield')}保存</strong><p>笔记自动保存在本机。左下角「一键导入导出」可以把全部笔记导出到一个文件夹，放进网盘或 U 盘带走。</p></div></div>`);
+ dialog('快捷键与帮助',`<div class="shortcut-list">${rows.map(([a,b])=>`<div class="menu-row"><span>${a}</span><span class="keys">${b}</span></div>`).join('')}</div><div class="help-grid"><div><strong>${icon('pen')}书写</strong><p>开启「仅用笔」后只有触控笔能书写，手指用于滚动。画笔会随笔压变化粗细。</p></div><div><strong>${icon('lasso')}套索</strong><p>框出内容后可拖动、复制、粘贴或删除；双击文字直接修改。</p></div><div><strong>${icon('title')}页面标题</strong><p>在页面顶部写标题，日期和时间显示在标题下方。第 1 页的标题会同步成笔记名称。</p></div><div><strong>${icon('split')}分屏</strong><p>点击顶栏的分屏按钮，在右侧打开另一本笔记，两边各自编辑、各自保存。</p></div><div><strong>${icon('eraser')}橡皮擦</strong><p>「整笔」碰到就删除整条笔迹；「局部」只擦掉经过的部分。</p></div><div><strong>${icon('comment')}批注与帖子</strong><p>批注固定在页面或笔迹上；帖子一页一帖，可多楼层、逐层回复。</p></div><div><strong>${icon('shield')}保存</strong><p>笔记自动保存在本机。左下角「笔记库文件夹」可以选一个文件夹（网盘同步文件夹、U 盘都行），全部笔记会以普通文件放在里面，和侧边栏一致；复制进去的 PDF、电子书会自动导入。</p></div></div>`);
 }
-async function settings(){const storage=await navigator.storage?.estimate?.().catch(()=>({}));const used=(storage?.usage||0)/1024/1024;dialog('设置',`<div class="settings-section"><label class="switch setting-switch"><input type="checkbox" id="setting-pen" role="switch" ${S.penOnly?'checked':''}><span class="switch-track" aria-hidden="true"></span><span class="switch-label"><strong>仅允许触控笔书写</strong><small>手指用于滚动和缩放；关闭时鼠标、触控笔和手指都可以书写。</small></span></label></div><div class="field-label">翻页方式</div>${scrollModeChoice(S.scrollMode)}<p class="field-hint">连续滚动：页面上下相连，像 PDF 阅读器一样一直滚下去。单页翻页：一次显示一页，滚到页面底部再滚动就翻到下一页。</p><div class="field-label">书写工具栏位置</div>${dockChoice(S.toolbarDock)}<p class="field-hint">也可以直接拖动工具栏左端的把手，放到页面的任意一边。</p><div class="field-label">本机笔记</div><div class="storage-meter" style="--amount:${Math.min(100,Math.max(1,(storage?.usage||0)/(storage?.quota||1)*100))}%"><span></span></div><p class="storage-text">${S.docs.length} 本笔记 · 已使用约 ${used.toFixed(1)} MB</p><p class="help-note">笔记保存在这台电脑的应用数据中。换电脑时用「导入导出」一键导出全部笔记，再在新电脑导入。</p><div class="menu-choices"><button type="button" id="settings-exchange">${icon('folder')}<span>导入导出文件夹<small>一键导出全部笔记到文件夹，或从文件夹 / 文件一键导入</small></span></button><button type="button" id="settings-converter">${icon('reading')}<span>选择 Calibre 转换组件<small>用于 MOBI、AZW3、RTF 等格式；需先在本机安装 Calibre</small></span></button><button type="button" id="settings-help">${icon('help')}<span>快捷键与使用帮助</span></button></div>${actions('保存设置')}`,{submit:async f=>{S.penOnly=$('#setting-pen').checked;await store.setSetting('penOnly',S.penOnly);setToolbarDock(f.get('dock'));setScrollMode(f.get('scrollMode'),{quiet:true});closeModal();if(S.active&&$('#pen-only')){$('#pen-only').checked=S.penOnly;updateTouch();}toast('设置已保存');}});$('#settings-help').onclick=showHelp;$('#settings-exchange').onclick=()=>run(async()=>{closeModal();await exchangeDialog();});$('#settings-converter').onclick=()=>run(async()=>{if(!window.desktop?.chooseConverter)throw new Error('请在独立桌面版中选择 Calibre 的 ebook-convert.exe');const r=await window.desktop.chooseConverter();if(r?.error)throw new Error(r.error);if(r?.selected)toast('Calibre 转换组件已设置');});}
+async function settings(){const storage=await navigator.storage?.estimate?.().catch(()=>({}));const used=(storage?.usage||0)/1024/1024;dialog('设置',`<div class="settings-section"><label class="switch setting-switch"><input type="checkbox" id="setting-pen" role="switch" ${S.penOnly?'checked':''}><span class="switch-track" aria-hidden="true"></span><span class="switch-label"><strong>仅允许触控笔书写</strong><small>手指用于滚动和缩放；关闭时鼠标、触控笔和手指都可以书写。</small></span></label></div><div class="field-label">翻页方式</div>${scrollModeChoice(S.scrollMode)}<p class="field-hint">连续滚动：页面上下相连，像 PDF 阅读器一样一直滚下去。单页翻页：一次显示一页，滚到页面底部再滚动就翻到下一页。</p><div class="field-label">书写工具栏位置</div>${dockChoice(S.toolbarDock)}<p class="field-hint">也可以直接拖动工具栏左端的把手，放到页面的任意一边。</p><div class="field-label">本机笔记</div><div class="storage-meter" style="--amount:${Math.min(100,Math.max(1,(storage?.usage||0)/(storage?.quota||1)*100))}%"><span></span></div><p class="storage-text">${S.docs.length} 本笔记 · 已使用约 ${used.toFixed(1)} MB</p><p class="help-note">笔记保存在这台电脑的应用数据中，同时可以在「笔记库文件夹」里放一份普通文件。换电脑时，在新电脑上选同一个文件夹即可。</p><div class="menu-choices"><button type="button" id="settings-plugins">${icon('plugin')}<span>插件<small>启用、停用、安装或卸载功能模块（画布、帖子、阅读…）</small></span></button><button type="button" id="settings-exchange">${icon('folder')}<span>笔记库文件夹<small>笔记以普通文件放在你选的文件夹里，和侧边栏一致；复制进去的文件自动导入</small></span></button><button type="button" id="settings-converter">${icon('reading')}<span>选择 Calibre 转换组件<small>用于 MOBI、AZW3、RTF 等格式；需先在本机安装 Calibre</small></span></button><button type="button" id="settings-help">${icon('help')}<span>快捷键与使用帮助</span></button></div>${actions('保存设置')}`,{submit:async f=>{S.penOnly=$('#setting-pen').checked;await store.setSetting('penOnly',S.penOnly);setToolbarDock(f.get('dock'));setScrollMode(f.get('scrollMode'),{quiet:true});closeModal();if(S.active&&$('#pen-only')){$('#pen-only').checked=S.penOnly;updateTouch();}toast('设置已保存');}});$('#settings-help').onclick=showHelp;$('#settings-plugins').onclick=()=>run(async()=>{closeModal();await pluginManager();});$('#settings-exchange').onclick=()=>run(async()=>{closeModal();await exchangeDialog();});$('#settings-converter').onclick=()=>run(async()=>{if(!window.desktop?.chooseConverter)throw new Error('请在独立桌面版中选择 Calibre 的 ebook-convert.exe');const r=await window.desktop.chooseConverter();if(r?.error)throw new Error(r.error);if(r?.selected)toast('Calibre 转换组件已设置');});}
 async function newDiscussion(){
  let images=[],reading=false;
  dialog('新建帖子',`<label class="field-label" for="post-title">标题</label><input class="field-input" name="title" id="post-title" maxlength="160" required placeholder="这一页想记录什么？" autocomplete="off"><label class="field-label" for="post-body">主楼 · 1楼</label><textarea class="field-input" name="body" id="post-body" rows="6" maxlength="20000" placeholder="写下正文。发表后可以继续发 2 楼、3 楼，或逐层回复。" required></textarea><div class="compose-image-row"><label class="btn tonal small" for="post-image-files">${icon('image')}添加图片</label><input id="post-image-files" class="visually-hidden" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple><span class="field-hint">最多 12 张，显示为正方形缩略图，点击看原图</span></div><div class="comment-images" id="post-images-preview"></div><p class="help-note">每个帖子单独占一页，创建日期和时间自动记录。</p>${actions('发表帖子')}`,{submit:async f=>{
@@ -611,7 +619,7 @@ async function newDiscussion(){
  function paint(){const target=$('#post-images-preview');if(!target)return;target.innerHTML=images.map((image,i)=>`<div class="draft-image"><img class="comment-image-thumb" src="${image.thumbnail||image.src}" alt="${E(image.name)}"><button class="draft-image-remove" type="button" data-remove-post-image="${i}" aria-label="移除图片" title="移除">×</button></div>`).join('');target.querySelectorAll('[data-remove-post-image]').forEach(b=>b.onclick=()=>{images.splice(+b.dataset.removePostImage,1);paint();});}
 }
 function renderDiscussion(){
- const d=doc();S.commentsOpen=true;queueMicrotask(placeToolbar);
+ extUnmount();const d=doc();S.commentsOpen=true;queueMicrotask(placeToolbar);
  view.innerHTML=`<main class="editor discussion-app">${titlebar(['discussion-home','返回帖子列表'],`<button class="icon-btn" data-action="undo" title="撤销 (Ctrl Z)" aria-label="撤销">${icon('undo')}</button><button class="icon-btn" data-action="redo" title="重做 (Ctrl Shift Z)" aria-label="重做">${icon('redo')}</button><button class="icon-btn" data-action="discussion-backup" title="导出 .inknote 备份 (Ctrl Shift E)" aria-label="导出备份">${icon('download')}</button><button class="btn primary" data-action="new-discussion">${icon('plus')}<span class="btn-label">新建帖子</span></button>`)}
  <div class="discussion-scroll" id="discussion-scroll"><div class="discussion-column">
   <div class="discussion-intro"><div class="post-kicker"><span class="kicker-icon">${icon('post')}</span><span>帖子</span><span aria-hidden="true">·</span><time datetime="${new Date(d.createdAt).toISOString()}">创建于 ${E(formatTimestamp(d.createdAt))}</time>${d.folder?`<span aria-hidden="true">·</span><span>${E(d.folder)}</span>`:''}</div>
@@ -628,7 +636,7 @@ function revealComment(el){if(!el)return;el.scrollIntoView({block:'nearest'});co
 function newDiscussionThread(){if(doc()?.kind==='discussion'){if(S.commentImagesBusy){toast('图片正在准备，请稍候');return;}const previous=S.commentDraft;S.commentDraft=discussionDraft(page());if(previous?.pageId===page().id){S.commentDraft.text=$('#comment-composer')?.value??previous.text??'';S.commentDraft.images=previous.images||[];}S.commentFocus=true;renderComments();$('#comment-composer')?.scrollIntoView({block:'center',behavior:'smooth'});return;}const v=page().infinite?S.viewport:null;startThreadAt({x:(v?.x||0)+46,y:(v?.y||0)+110});}
 function makeCanvasPage(template,infinite=true,kind='plain',{spacing='standard',margin,title=''}={}){
  const p=infinite?newInfinitePage(template):newPage(template);p.comments=[];p.title=title;p.spacing=SPACINGS.includes(spacing)?spacing:'standard';p.margin=margin===undefined?template==='ruled'||template==='grid':!!margin;
- if(kind==='time'){p.timeCanvas=true;p.canvasCreatedAt=Date.now();}return p;
+ const ct=P.canvasType(kind);if(ct){try{ct.initPage?.(p);ct.page?.init(p);}catch(e){console.error('canvas type',e);}}else if(kind==='time'){p.timeCanvas=true;p.canvasCreatedAt=Date.now();}return p;
 }
 function drawCommentPins(ctx,p){
  ctx.save();const all=roots(p);all.forEach((root,i)=>{
@@ -876,7 +884,7 @@ function pageSetupDialog(){
 const searchCache=new Map();
 function searchText(d){
  const hit=searchCache.get(d.id);if(hit&&hit.at===d.updatedAt&&hit.title===d.title)return hit.text;
- const parts=[];for(const p of d.pages){if(p.title)parts.push(p.title);for(const a of p.annotations)if(a.type==='text')parts.push(a.text);else if(a.type==='rich')parts.push(a.plain||richPlainText(a.html));for(const n of p.comments||[]){parts.push(n.body);for(const im of n.images||[])parts.push(im.name);}if(p.reading)for(const b of p.reading.blocks||[])if(typeof b.text==='string')parts.push(b.text);}
+ const parts=[],ext=P.pageExtension(d),dt=P.docTypeOf(d);if(dt?.searchText){try{parts.push(String(dt.searchText(d)??''));}catch{}}for(const p of d.pages){if(p.title)parts.push(p.title);if(ext?.searchText&&p.ext?.[ext.key]){try{parts.push(...ext.searchText(p).filter(x=>typeof x==='string'));}catch{}}for(const a of p.annotations)if(a.type==='text')parts.push(a.text);else if(a.type==='rich')parts.push(a.plain||richPlainText(a.html));for(const n of p.comments||[]){parts.push(n.body);for(const im of n.images||[])parts.push(im.name);}if(p.reading)for(const b of p.reading.blocks||[])if(typeof b.text==='string')parts.push(b.text);}
  const raw=parts.join('\n');const text={raw,lower:raw.toLocaleLowerCase()};searchCache.set(d.id,{at:d.updatedAt,title:d.title,text});return text;
 }
 function matchDoc(d,q){if(!q)return {ok:true};if(d.title.toLocaleLowerCase().includes(q))return {ok:true};const t=searchText(d),i=t.lower.indexOf(q);if(i<0)return {ok:false};const a=Math.max(0,i-16),b=Math.min(t.raw.length,i+q.length+28);return {ok:true,snippet:{pre:(a?'…':'')+t.raw.slice(a,i).replace(/\s+/g,' '),hit:t.raw.slice(i,i+q.length),post:t.raw.slice(i+q.length,b).replace(/\s+/g,' ')+(b<t.raw.length?'…':'')}};}
@@ -912,7 +920,7 @@ async function paintGhost(g){
  try{
   const c=document.createElement('canvas'),ctx=c.getContext('2d');c.width=Math.round(s.w*ratio);c.height=Math.round(s.h*ratio);
   if(q.infinite){await prepareRich(q.annotations,1);const e=contentExtent(q),k=Math.min(c.width/e.width,c.height/e.height);ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);ctx.save();ctx.scale(k,k);drawInfinitePaper(ctx,q,{x:0,y:0,width:e.width,height:e.height});q.annotations.forEach(a=>drawAnnotation(ctx,a));ctx.restore();}
-  else{const bg=document.createElement('canvas');await renderBackground(bg,q,S.pdf,{cssWidth:s.w,pixelRatio:ratio});await prepareRich(q.annotations,ratio*S.zoom);if(!g.isConnected||docId!==S.active)return;c.width=bg.width;c.height=bg.height;ctx.drawImage(bg,0,0);g._bg=bg;ctx.save();ctx.scale(c.width/q.width,c.height/q.height);q.annotations.forEach(a=>drawAnnotation(ctx,a));drawCommentPins(ctx,q);ctx.restore();}
+  else{const bg=document.createElement('canvas'),list=displayAnns(q,d);await renderBackground(bg,q,S.pdf,{cssWidth:s.w,pixelRatio:ratio});await prepareRich(list,ratio*S.zoom);if(!g.isConnected||docId!==S.active)return;c.width=bg.width;c.height=bg.height;ctx.drawImage(bg,0,0);g._bg=bg;ctx.save();ctx.scale(c.width/q.width,c.height/q.height);list.forEach(a=>drawAnnotation(ctx,a));drawCommentPins(ctx,q);ctx.restore();}
   if(!g.isConnected)return;g.querySelector('canvas')?.remove();g.prepend(c);g.dataset.painted='1';
  }finally{delete g.dataset.painting;}
 }
@@ -999,64 +1007,405 @@ function bindToolbarDock(){
  handle.onkeydown=e=>{const dock={ArrowDown:'bottom',ArrowUp:'top',ArrowLeft:'left',ArrowRight:'right'}[e.key];if(dock){e.preventDefault();e.stopPropagation();setToolbarDock(dock);handle.focus();}};
 }
 function dockChoice(value){return `<div class="segmented" role="radiogroup" aria-label="工具栏位置">${DOCKS.map(v=>`<label><input type="radio" name="dock" value="${v}" ${v===value?'checked':''}><span>${icon('check')}${DOCK_NAMES[v]}</span></label>`).join('')}</div>`;}
-// ---------- Import / export folder ----------
-// One click writes every note as its own .inknote file into a folder the user picked (put it inside any cloud-drive
-// sync folder, or copy it anywhere); one click reads that folder back. Files carry the note id, so importing again
-// updates the note instead of making a copy. Per note we remember its updatedAt at the last export/import: a file that
-// is newer while the local note is unchanged replaces it; if both changed, the file comes in as a "（导入版本）" copy.
-const EXCHANGE={state:null,status:null,busy:false};
+// ---------- 笔记库文件夹 (library folder) ----------
+// The user picks one folder (it may sit inside a OneDrive / 百度网盘 sync folder or on a USB stick) and 墨页 keeps it as
+// a plain-file copy of the library that matches the sidebar: one sub-folder per sidebar folder; notebooks and posts as
+// "<title>-<id>.inknote"; imported PDFs and e-books as the original file plus "<file>.inknote" next to it holding the
+// annotations. Files and folders the user copies in are imported, moving a file to another sub-folder moves the note,
+// renaming or moving a note in 墨页 renames or moves its files. IndexedDB stays the primary copy: a file that disappears
+// from the folder never deletes a note by itself — 墨页 asks first.
+const EXCHANGE={shown:new Map(),state:null,status:null,busy:false,again:false,recheck:false,retryHome:false,timer:0,progress:'',seen:new Map(),meta:new Map()};
 const exchangeDesktop=()=>!!window.desktop?.exchange&&!EMBED;
 async function xcall(channel,payload){const r=await window.desktop.exchange(channel,payload);if(r?.error)throw new Error(r.error);return r?.value;}
 function ago(t){const s=Math.max(0,(Date.now()-t)/1000);return s<60?'刚刚':s<3600?Math.floor(s/60)+' 分钟前':s<86400?Math.floor(s/3600)+' 小时前':new Date(t).toLocaleDateString('zh-CN',{month:'short',day:'numeric'});}
-async function exchangeState(){if(!EXCHANGE.state){const s=await store.setting('exchangeState');EXCHANGE.state=s&&typeof s==='object'?{map:s.map||{},lastExport:s.lastExport||0,lastImport:s.lastImport||0}:{map:{},lastExport:0,lastImport:0};}return EXCHANGE.state;}
-async function saveExchangeState(){await store.setSetting('exchangeState',EXCHANGE.state);}
+const SOURCE_EXT=new Set(['pdf','epub','txt','md','fb2','html','htm','cbz','mobi','azw','azw3','azw4','prc','rtf','docx','odt','chm','lit','lrf','pdb','snb','tcr','djvu','cbr']);
+const SYSTEM_DIR=/^(\$recycle\.bin|system volume information|recycler|found\.\d+)$/i;
+const isNoteFile=n=>/\.inknote$/i.test(n);
+const baseOfPath=p=>p.split('/').pop();
+const dirOfPath=p=>p.includes('/')?p.split('/')[0]:'';
+const extOfName=n=>{const b=baseOfPath(n);return b.includes('.')?b.split('.').pop().toLowerCase():'';};
+const stemOf=n=>{const b=baseOfPath(n),i=b.lastIndexOf('.');return i>0?b.slice(0,i):b;};
+const samePath=(a,b)=>!!a&&!!b&&a.toLowerCase()===b.toLowerCase();
+const stampOf=f=>f.size+':'+f.mtime;
+const sizeText=n=>n>=1073741824?(n/1073741824).toFixed(1)+' GB':Math.max(1,Math.round(n/1048576))+' MB';
+// A file or folder name Windows accepts: no reserved characters or device names, no leading dot, no trailing dot or space.
+function seg(s,max=100){let v=String(s||'').replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').replace(/^[.\s]+/,'').slice(0,max).replace(/[.\s]+$/,'');if(/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(v))v+='_';return v||'未命名';}
+const dirOfFolder=f=>f?seg(f,60):'';
+const folderOfDir=dir=>!dir?'':S.folders.find(f=>samePath(dirOfFolder(f),dir))??dir;
 const shortId=id=>String(id).replace(/[^\w-]/g,'').slice(0,8);
-const exportName=d=>filename(d.title).slice(0,80)+'-'+shortId(d.id)+'.inknote';
-const ofNote=(name,id)=>name.toLowerCase().endsWith('-'+shortId(id).toLowerCase()+'.inknote');
-async function refreshExchangeBadge(){
- const el=$('#exchange-status');if(!el)return;const st=await exchangeState().catch(()=>null);
- if(exchangeDesktop()&&!EXCHANGE.status)EXCHANGE.status=await xcall('exchange:status').catch(()=>null);
- const f=EXCHANGE.status?.folder,last=Math.max(st?.lastExport||0,st?.lastImport||0);
- el.querySelector('.exchange-text').textContent=exchangeDesktop()&&!f?'导入导出文件夹 · 未设置':last?(st.lastExport>=st.lastImport?'上次导出 · ':'上次导入 · ')+ago(last):'一键导入导出';
- el.title=f?'导入导出文件夹：'+f:'一键导出全部笔记，或从文件导入';
+const noteName=d=>{const dir=dirOfFolder(d.folder);return (dir?dir+'/':'')+seg(d.title,80)+'-'+shortId(d.id)+'.inknote';};
+const ofNote=(name,id)=>baseOfPath(name).toLowerCase().endsWith('-'+shortId(id).toLowerCase()+'.inknote');
+// PDFs and e-books are mirrored as their original file (the one that was imported); everything else as .inknote.
+function sourceExt(d){if(d.kind==='pdf')return 'pdf';if(d.kind==='ebook'){const f=String(d.format||'').toLowerCase();return SOURCE_EXT.has(f)?f:null;}return null;}
+const mirrored=d=>!(d.sample&&d.sample===d.updatedAt); // untouched sample notes exist on every computer already
+async function exchangeState(){
+ if(!EXCHANGE.state){
+  const s=await store.setting('exchangeState'),o=s&&typeof s==='object'?s:{},obj=v=>v&&typeof v==='object'&&!Array.isArray(v)?v:{};
+  EXCHANGE.state={map:obj(o.map),lastExport:o.lastExport||0,lastImport:o.lastImport||0,lastSync:o.lastSync||0,auto:o.auto!==false,folder:typeof o.folder==='string'?o.folder:null,dirs:Array.isArray(o.dirs)?o.dirs:[],ignore:obj(o.ignore),ignoreDirs:Array.isArray(o.ignoreDirs)?o.ignoreDirs:[],failed:obj(o.failed),gone:Array.isArray(o.gone)?o.gone:[]};
+ }
+ return EXCHANGE.state;
 }
-function markExchangeDeleted(id){run(async()=>{const st=await exchangeState();if(st.map[id]){st.map[id]={deleted:true};await saveExchangeState();}});}
-async function writeExchangeFile(name,blob,replaces){
- const {token}=await xcall('exchange:write-begin',{name,size:blob.size});let ok=false;
+async function saveExchangeState(){await store.setSetting('exchangeState',EXCHANGE.state);}
+// Another folder was chosen: forget where files were (versions are kept, so conflicts are still noticed).
+function adoptFolder(st,folder){
+ if(st.folder===folder)return;
+ if(st.folder!==null){
+  for(const [id,e] of Object.entries(st.map)){if(e.deleted){delete st.map[id];continue;}for(const k of ['file','fileStamp','side','sideStamp','src','srcStamp','srcSize'])delete e[k];}
+  st.dirs=[];st.ignore={};st.ignoreDirs=[];st.failed={};st.gone=[];
+ }
+ st.folder=folder;EXCHANGE.seen.clear();EXCHANGE.meta.clear();
+}
+async function refreshExchangeBadge(){
+ const el=$('#exchange-status');if(!el)return;const st=await exchangeState().catch(()=>null),text=el.querySelector('.exchange-text');
+ if(exchangeDesktop()&&!EXCHANGE.status)EXCHANGE.status=await xcall('exchange:status').catch(()=>null);
+ const f=EXCHANGE.status?.folder,gone=st?.gone?.length||0;let t;
+ if(!exchangeDesktop()){const last=Math.max(st?.lastExport||0,st?.lastImport||0);t=last?(st.lastExport>=st.lastImport?'上次导出 · ':'上次导入 · ')+ago(last):'一键导入导出';}
+ else if(!f)t='笔记库文件夹 · 未设置';
+ else if(!EXCHANGE.status.exists)t='笔记库文件夹 · 找不到';
+ else if(EXCHANGE.busy)t=EXCHANGE.progress||'正在同步…';
+ else if(gone)t=gone+' 个文件已从文件夹删除';
+ else if(!st?.auto)t='笔记库文件夹 · 自动同步已关';
+ else t=st?.lastSync?'笔记库已同步 · '+ago(st.lastSync):'笔记库文件夹';
+ if(text)text.textContent=t;
+ el.classList.toggle('syncing',EXCHANGE.busy);el.classList.toggle('attention',!!gone||(!!f&&EXCHANGE.status?.exists===false));
+ el.title=f?'笔记库文件夹：'+f:exchangeDesktop()?'选择一个文件夹，墨页会把全部笔记以普通文件放在里面':'一键导出全部笔记，或从文件导入';
+ if(EXCHANGE.retryHome&&!S.active){EXCHANGE.retryHome=false;scheduleSync('home',800);}
+ refreshStorage();
+}
+function markExchangeDeleted(id){run(async()=>{const st=await exchangeState(),e=st.map[id];st.gone=st.gone.filter(g=>g.id!==id);if(e)e.deleted=true;await saveExchangeState();if(e)scheduleSync('delete',600);});}
+function scheduleSync(reason,delay=2500){
+ if(!exchangeDesktop()||closing||(EXCHANGE.status&&!EXCHANGE.status.folder))return;
+ // A pending manual request or recheck is not downgraded by a later save / focus / watch trigger.
+ const rank=r=>r==='manual'?3:r==='recheck'||r==='gone'?2:1;
+ if(EXCHANGE.scheduled&&rank(EXCHANGE.nextReason)>rank(reason))reason=EXCHANGE.nextReason;
+ clearTimeout(EXCHANGE.timer);EXCHANGE.scheduled=true;EXCHANGE.nextReason=reason;
+ EXCHANGE.timer=setTimeout(()=>{EXCHANGE.scheduled=false;EXCHANGE.nextReason=null;run(()=>syncLibrary({reason}));},delay);
+}
+async function writeExchangeFile(name,blob,replaces=[]){
+ const {token}=await xcall('exchange:write-begin',{name,size:blob.size});let ok=false,result=null;
  try{const step=16*1024*1024;for(let o=0;o<blob.size;o+=step)await xcall('exchange:write-chunk',{token,bytes:new Uint8Array(await blob.slice(o,o+step).arrayBuffer())});ok=true;}
- finally{await xcall('exchange:write-end',{token,ok,replaces}).catch(e=>{if(ok)throw e;});}
+ finally{result=await xcall('exchange:write-end',{token,ok,replaces}).catch(e=>{if(ok)throw e;return null;});}
+ if(!result?.entry)throw new Error('写入「'+name+'」失败。');return result.entry;
 }
 async function readExchangeFile(f){
  const step=16*1024*1024,parts=[];
  for(let o=0;o<f.size;o+=step)parts.push(await xcall('exchange:read',{name:f.name,start:o,end:Math.min(f.size,o+step)-1}));
  return new Blob(parts);
 }
+const fileBytes=async f=>new Uint8Array(await (await readExchangeFile(f)).arrayBuffer());
+// A file copied in while it is still being written must not be imported half-way: it has to look the same twice.
+function settled(f,now){
+ if(now-f.mtime>30000)return true;const s=stampOf(f),seen=EXCHANGE.seen.get(f.name);
+ if(seen&&seen.stamp===s&&now-seen.at>=1500)return true;
+ if(!seen||seen.stamp!==s)EXCHANGE.seen.set(f.name,{stamp:s,at:now});EXCHANGE.recheck=true;return false;
+}
+// What a library .inknote holds (id, version, the original it belongs to), read once per version of the file.
+async function libraryMeta(f){
+ const stamp=stampOf(f),c=EXCHANGE.meta.get(f.name);if(c&&c.stamp===stamp)return c;
+ if(f.size>1024*1024*1024)throw new Error('文件超过 1 GB。');
+ const {data,source}=await readBackup(await readExchangeFile(f)),raw=data?.document;
+ if(data?.format!=='inknote'||!raw||!Array.isArray(raw.pages))throw new Error('不是有效的墨页文件。');
+ const light={stamp,folder:typeof raw.folder==='string'?raw.folder:'',id:typeof raw.id==='string'&&/^[\w-]{8,64}$/.test(raw.id)?raw.id:null,updatedAt:Number.isFinite(raw.updatedAt)?raw.updatedAt:0,sourceFile:typeof data.sourceFile==='string'&&data.sourceFile&&!/[/\\]/.test(data.sourceFile)?data.sourceFile:null};
+ EXCHANGE.meta.set(f.name,light);return {...light,data,source};
+}
+const fullMeta=async(f,m)=>m.data?m:(EXCHANGE.meta.delete(f.name),libraryMeta(f));
+function scanIndex(scan){
+ const files=new Map(scan.files.map(f=>[f.name.toLowerCase(),f]));
+ return {files,has:p=>!!p&&files.has(p.toLowerCase()),get:p=>p?files.get(p.toLowerCase())||null:null};
+}
+function knownPaths(st){
+ const known=new Map();
+ for(const [id,e] of Object.entries(st.map)){if(e.file)known.set(e.file.toLowerCase(),{id,role:'file',stamp:e.fileStamp});if(e.side)known.set(e.side.toLowerCase(),{id,role:'side',stamp:e.sideStamp});if(e.src)known.set(e.src.toLowerCase(),{id,role:'src',stamp:e.srcStamp});}
+ return known;
+}
+const ignoredDir=(st,name)=>{const d=dirOfPath(name);return !!d&&st.ignoreDirs.some(x=>samePath(x,d));};
+// Folder → 墨页: new sub-folders, new or changed files, files moved or renamed in Explorer.
+async function pullLibrary(st,scan,c){
+ const now=Date.now(),ix=scanIndex(scan);let foldersChanged=false;
+ const dirs=scan.folders.filter(n=>!SYSTEM_DIR.test(n)&&!st.ignoreDirs.some(x=>samePath(x,n)));
+ for(const n of dirs)if(!S.folders.some(f=>samePath(dirOfFolder(f),n))){S.folders.push(n);foldersChanged=true;c.folders++;}
+ // .inknote files, grouped by note id
+ let known=knownPaths(st);const byId=new Map();
+ for(const f of scan.files){
+  if(!isNoteFile(f.name)||ignoredDir(st,f.name))continue;const stamp=stampOf(f),k=known.get(f.name.toLowerCase());
+  if(k&&k.role!=='src'&&k.stamp===stamp)continue; // written by 墨页 and not touched since
+  if(st.ignore[f.name]===stamp||st.failed[f.name]===stamp||!settled(f,now))continue;
+  try{
+   const m=await libraryMeta(f);
+   if(!m.id){ // a note without an id (hand-made or very old): imported once, then renamed to the library's naming
+    const full=await fullMeta(f,m);full.data.document.folder=folderOfDir(dirOfPath(f.name));const nid=await importBackup(null,{data:full.data,source:full.source}),d=S.docs.find(x=>x.id===nid);
+    st.map[nid]={file:f.name,fileStamp:stamp,local:d.updatedAt,title:d.title};c.added++;continue;
+   }
+   if(!byId.has(m.id))byId.set(m.id,[]);byId.get(m.id).push({f,m});
+  }catch(e){st.failed[f.name]=stamp;c.failed++;c.errors.push(baseOfPath(f.name)+'：'+e.message);}
+ }
+ for(const [id,list] of byId){
+  const e=st.map[id],knownPath=e?.side||e?.file,mine=list.find(x=>samePath(x.f.name,knownPath));
+  // The same note in a second place while the known file is still there: a copy made in Explorer, which becomes a
+  // note of its own once it has stayed for a while (a cloud client moving a file passes through this state briefly).
+  if(!mine&&knownPath&&ix.has(knownPath)){
+   for(const x of list){
+    const key='copy:'+x.f.name,seen=EXCHANGE.seen.get(key),stamp=stampOf(x.f);
+    if(!seen||seen.stamp!==stamp){EXCHANGE.seen.set(key,{stamp,at:now});EXCHANGE.later=true;continue;}
+    if(now-seen.at<15000){EXCHANGE.later=true;continue;}
+    try{await pullCopy(st,x.f,x.m,c,ix);}catch(err){st.failed[x.f.name]=stamp;c.failed++;c.errors.push(baseOfPath(x.f.name)+'：'+err.message);}
+   }
+   continue;
+  }
+  const pick=mine||list.sort((a,b)=>a.f.name.localeCompare(b.f.name))[0];
+  // 0.6.1 put every note at the top level whatever its folder: such a file does not move the note out of its folder.
+  const legacy=!dirOfPath(pick.f.name)&&ofNote(pick.f.name,id)&&(e?e.local!==undefined&&!e.file&&!e.side&&!e.src:!!pick.m.folder);
+  try{await pullNote(st,id,pick.f,pick.m,c,ix,!mine&&!legacy,legacy);}catch(err){st.failed[pick.f.name]=stampOf(pick.f);c.failed++;c.errors.push(baseOfPath(pick.f.name)+'：'+err.message);}
+ }
+ // originals (PDF / e-book) without an annotation file next to them
+ known=knownPaths(st);const fresh=[];
+ for(const f of scan.files){
+  if(isNoteFile(f.name)||ignoredDir(st,f.name))continue;const stamp=stampOf(f),k=known.get(f.name.toLowerCase());
+  if(k){if(k.role==='src'&&k.stamp!==stamp){st.map[k.id].srcStamp=stamp;st.map[k.id].srcSize=f.size;}continue;}
+  if(ix.has(f.name+'.inknote'))continue; // its annotation file brings it in
+  if(st.ignore[f.name]===stamp||st.failed[f.name]===stamp)continue;
+  // moved or renamed in Explorer: a note whose original vanished, same type and size
+  const ext=extOfName(f.name),hit=Object.entries(st.map).find(([id,e])=>e.src&&!e.deleted&&!ix.has(e.src)&&extOfName(e.src)===ext&&e.srcSize===f.size&&S.docs.some(d=>d.id===id));
+  if(hit){
+   const [id,e]=hit,d=S.docs.find(x=>x.id===id),folder=folderOfDir(dirOfPath(f.name));let changed=false;
+   if(d.folder!==folder){d.folder=folder;changed=true;}
+   if(stemOf(f.name)!==stemOf(e.src)&&stemOf(f.name)){d.title=stemOf(f.name).slice(0,160);d.updatedAt=Date.now();changed=true;}
+   if(changed)await store.save(d);
+   Object.assign(e,{src:f.name,srcStamp:stamp,srcSize:f.size,title:d.title});st.gone=st.gone.filter(g=>g.id!==id);c.moved++;continue;
+  }
+  if(settled(f,now))fresh.push(f);
+ }
+ // still open in another program (a copy in progress): next round
+ if(fresh.length){const held=new Set((await xcall('exchange:busy',{names:fresh.map(f=>f.name)}).catch(()=>[])).map(n=>n.toLowerCase()));if(held.size){EXCHANGE.recheck=true;for(let i=fresh.length-1;i>=0;i--)if(held.has(fresh[i].name.toLowerCase()))fresh.splice(i,1);}}
+ for(let i=0;i<fresh.length;i++){
+  const f=fresh[i],name=baseOfPath(f.name);EXCHANGE.progress=`正在导入 ${i+1}/${fresh.length}`;refreshExchangeBadge();
+  try{
+   if(f.size>1024*1024*1024)throw new Error('文件超过 1 GB，请先拆分再导入。');
+   const imp=P.importerFor(name);if(!imp)throw new Error(unsupportedFile(name));
+   const before=new Set(S.docs.map(d=>d.id)),r=await imp.import(new File([await readExchangeFile(f)],name));
+   const id=typeof r==='string'?r:S.docs.find(d=>!before.has(d.id))?.id,d=S.docs.find(x=>x.id===id);if(!d)throw new Error('导入没有完成。');
+   d.folder=folderOfDir(dirOfPath(f.name));await store.save(d);
+   st.map[id]={src:f.name,srcStamp:stampOf(f),srcSize:f.size,title:d.title};c.added++;
+  }catch(e){st.failed[f.name]=stampOf(f);c.failed++;c.errors.push(name+'：'+e.message);}
+ }
+ // notes whose file was deleted in Explorer: never deleted here without asking
+ const goneNow=[];st.gone=st.gone.filter(g=>{const d=S.docs.find(x=>x.id===g.id),e=st.map[g.id];return d&&e&&!e.deleted&&!ix.has(sourceExt(d)?e.src:e.file);});
+ // (not while files are still settling or a file of this note turned up elsewhere: that is a move, not a deletion)
+ for(const d of EXCHANGE.recheck?[]:S.docs){
+  const e=st.map[d.id];if(!e||e.deleted||!mirrored(d)||st.gone.some(g=>g.id===d.id)||byId.has(d.id))continue;
+  const primary=sourceExt(d)?e.src:e.file;if(!primary||ix.has(primary))continue;
+  if(e.local!==d.updatedAt)continue; // edited here since: it is simply written again
+  goneNow.push({id:d.id,title:d.title,path:primary});
+ }
+ st.gone.push(...goneNow);c.gone+=goneNow.length;
+ // sub-folders deleted or renamed in Explorer → the sidebar folder goes too, once nothing is left in it
+ for(const n of st.dirs){
+  if(dirs.some(x=>samePath(x,n)))continue;const f=S.folders.find(x=>samePath(dirOfFolder(x),n));if(!f)continue;
+  if(S.docs.some(d=>d.folder===f&&mirrored(d)&&!st.map[d.id]?.deleted&&!st.gone.some(g=>g.id===d.id)))continue; // (untouched samples do not keep it)
+  S.folders=S.folders.filter(x=>x!==f);if(S.view==='folder:'+f)S.view='all';foldersChanged=true;c.folders++;
+ }
+ if(foldersChanged)await store.setSetting('folders',S.folders);
+}
+async function pullCopy(st,f,m,c,ix){
+ const dir=dirOfPath(f.name),src=m.sourceFile?ix.get((dir?dir+'/':'')+m.sourceFile)||ix.get(f.name.replace(/\.inknote$/i,'')):null;
+ if(m.sourceFile&&(!src||knownPaths(st).has(src.name.toLowerCase()))){st.ignore[f.name]=stampOf(f);return;} // annotations without an original of their own
+ const full=await fullMeta(f,m);full.data.document.folder=folderOfDir(dir);
+ const nid=await importBackup(null,{data:full.data,source:src?()=>fileBytes(src):full.source}),d=S.docs.find(x=>x.id===nid);
+ st.map[nid]=src?{side:f.name,sideStamp:stampOf(f),src:src.name,srcStamp:stampOf(src),srcSize:src.size,title:d.title}:{file:f.name,fileStamp:stampOf(f),title:d.title};
+ c.added++;
+}
+async function pullNote(st,id,f,m,c,ix,moved,legacy){
+ const e=st.map[id]||(st.map[id]={}),local=S.docs.find(d=>d.id===id),stamp=stampOf(f),dir=dirOfPath(f.name),fUpd=m.updatedAt;
+ if(e.deleted)return; // deleted here; the push removes the file
+ const folder=legacy&&m.folder?m.folder:folderOfDir(dir);
+ // the original next to its annotation file (also when both were renamed together in Explorer)
+ const src=m.sourceFile?ix.get((dir?dir+'/':'')+m.sourceFile)||ix.get(f.name.replace(/\.inknote$/i,'')):null;
+ const was=m.sourceFile?e.src:e.file,now=m.sourceFile?src?.name:f.name;
+ const record=v=>{
+  if(m.sourceFile){e.side=f.name;e.sideStamp=stamp;delete e.file;delete e.fileStamp;if(src){e.src=src.name;e.srcStamp=stampOf(src);e.srcSize=src.size;}}
+  else{e.file=f.name;e.fileStamp=stamp;}
+  e.local=v;st.gone=st.gone.filter(g=>g.id!==id);
+ };
+ const sourceOf=full=>src?()=>fileBytes(src):full.source;
+ if(!local){ // new on this computer
+  const full=await fullMeta(f,m);if(m.sourceFile&&!src&&!full.source)throw new Error('找不到原文件「'+m.sourceFile+'」，请把它和这个 .inknote 放在同一个文件夹里。');
+  if(folder&&!S.folders.includes(folder)){S.folders.push(folder);await store.setSetting('folders',S.folders);}
+  full.data.document.folder=folder;await importBackup(null,{data:full.data,source:sourceOf(full),keepId:true});
+  const d=S.docs.find(x=>x.id===id);record(d.updatedAt);e.title=d.title;c.added++;return;
+ }
+ const hist=e.local!==undefined,open=S.active===id||S.split?.id===id;
+ if(moved&&local.folder!==folder){local.folder=folder;await store.save(local);c.moved++;}
+ if(fUpd===local.updatedAt||hist&&fUpd===e.local){ // same version (perhaps moved or renamed in Explorer)
+  record(fUpd);
+  const stem=n=>m.sourceFile?stemOf(n):stemOf(n).replace(new RegExp('-'+shortId(id)+'$','i'),'');
+  if(was&&now&&!samePath(was,now)&&stem(now)&&seg(stem(now),80)!==seg(stem(was),80)){local.title=stem(now).slice(0,160);local.updatedAt=Date.now();await store.save(local);e.title=local.title;c.moved++;}
+  return;
+ }
+ if(!hist&&fUpd<local.updatedAt){record(fUpd);return;} // first meeting and the copy here is newer: it is written over the file
+ if(hist&&local.updatedAt===e.local&&fUpd>e.local){ // changed only in the folder (another computer, a cloud drive)
+  if(open){c.busy++;EXCHANGE.retryHome=true;return;} // taken in once the note is closed
+  const full=await fullMeta(f,m);full.data.document.folder=local.folder;
+  await importBackup(null,{data:full.data,source:sourceOf(full),keepId:true,keepBinary:true});record(fUpd);e.title=S.docs.find(x=>x.id===id)?.title;c.updated++;return;
+ }
+ // changed in both places, or an older version was put back: the folder's version comes in as a copy, nothing is lost
+ const full=await fullMeta(f,m),raw=full.data.document;raw.title=String(raw.title||'').slice(0,140)+'（导入版本）';raw.folder=local.folder;
+ const binary=sourceExt(local)?await store.binary(id):null;
+ await importBackup(null,{data:full.data,source:binary?async()=>new Uint8Array(binary):sourceOf(full)});
+ record(fUpd);c.copies++;
+}
+// 墨页 → folder: sub-folders for every sidebar folder, new / changed / renamed / moved notes, deleted notes.
+async function pushLibrary(st,scan,c){
+ const ix=scanIndex(scan),taken=new Set(ix.files.keys()),gone=new Set(st.gone.map(g=>g.id));
+ const unique=(dir,stem,ext,id,self)=>{const at=s=>(dir?dir+'/':'')+s+'.'+ext;let n=at(stem);if(!taken.has(n.toLowerCase())||samePath(n,self))return n;n=at(stem+' ('+shortId(id)+')');for(let i=2;taken.has(n.toLowerCase())&&!samePath(n,self);i++)n=at(stem+' ('+shortId(id)+'-'+i+')');return n;};
+ const dirs=new Set(scan.folders.map(n=>n.toLowerCase()));
+ for(const f of S.folders){const n=dirOfFolder(f);if(n&&!dirs.has(n.toLowerCase())){await xcall('exchange:mkdir',{folder:n});dirs.add(n.toLowerCase());}}
+ // A file changed in the folder that the pull has not taken in yet (note open, still being copied) is left alone.
+ const pending=(path,recorded)=>{const f=ix.get(path);return !!(f&&recorded&&stampOf(f)!==recorded&&st.failed[f.name]!==stampOf(f));};
+ // 0.6.1 kept every note as "<title>-<id>.inknote" at the top level: those are replaced by the new layout.
+ const legacy=(d,e,target)=>e.file||e.side?[]:scan.files.filter(f=>!f.folder&&isNoteFile(f.name)&&ofNote(f.name,d.id)&&!samePath(f.name,target)).map(f=>f.name);
+ const docs=S.docs.filter(d=>mirrored(d)&&!gone.has(d.id)&&!st.map[d.id]?.deleted);
+ for(let i=0;i<docs.length;i++){
+  const d=docs[i],e=st.map[d.id]||(st.map[d.id]={}),ext=sourceExt(d);
+  if(i%10===0){EXCHANGE.progress=`正在同步 ${i+1}/${docs.length}`;refreshExchangeBadge();}
+  try{
+   if(ext){
+    if(pending(e.side,e.sideStamp)||pending(e.file,e.fileStamp))continue;
+    let src=e.src&&ix.has(e.src)?ix.get(e.src).name:null;
+    if(src){
+     const renamed=e.title!=null&&e.title!==d.title,wrongDir=!samePath(dirOfPath(src),dirOfFolder(d.folder));
+     if(renamed||wrongDir){
+      const own=extOfName(src)||ext,to=unique(dirOfFolder(d.folder),renamed?seg(d.title):stemOf(src),own,d.id,src);
+      if(!samePath(to,src)){const entry=await xcall('exchange:rename',{from:src,to});if(!entry)throw new Error('重命名「'+src+'」失败。');taken.delete(src.toLowerCase());taken.add(to.toLowerCase());Object.assign(e,{src:to,srcStamp:stampOf(entry),srcSize:entry.size});src=to;c.written++;}
+     }
+    }else{
+     const binary=await store.binary(d.id);if(!binary?.byteLength)throw new Error('「'+d.title+'」缺少原始文件。');
+     const to=unique(dirOfFolder(d.folder),seg(d.title),ext,d.id);EXCHANGE.progress='正在写入「'+d.title.slice(0,16)+'」';refreshExchangeBadge();
+     const entry=await writeExchangeFile(to,new Blob([binary]));taken.add(to.toLowerCase());Object.assign(e,{src:to,srcStamp:stampOf(entry),srcSize:entry.size});src=to;c.written++;
+    }
+    const side=src+'.inknote',stale=[e.side,e.file].filter(p=>p&&!samePath(p,side)&&ix.has(p)).concat(legacy(d,e,side)),cur=ix.get(side);
+    if(!(cur&&samePath(e.side,side)&&e.local===d.updatedAt&&e.sideStamp===stampOf(cur)&&!stale.length&&e.title===d.title)){
+     const blob=new Blob([JSON.stringify({format:'inknote',version:1,document:structuredClone(d),pdf:null,source:null,sourceFile:baseOfPath(src),sourceBytes:e.srcSize})],{type:'application/json'});
+     const entry=await writeExchangeFile(side,blob,stale);taken.add(side.toLowerCase());Object.assign(e,{side,sideStamp:stampOf(entry),local:d.updatedAt});delete e.file;delete e.fileStamp;c.written++;
+    }
+    e.title=d.title;
+   }else{
+    const target=noteName(d),cur=ix.get(target),stale=[e.file,e.side].filter(p=>p&&!samePath(p,target)&&ix.has(p)).concat(legacy(d,e,target));
+    if(pending(e.file,e.fileStamp))continue;
+    if(cur&&samePath(e.file,target)&&e.local===d.updatedAt&&e.fileStamp===stampOf(cur)&&!stale.length){e.title=d.title;continue;}
+    const blob=new Blob([JSON.stringify({format:'inknote',version:1,document:structuredClone(d),pdf:null,source:null})],{type:'application/json'});
+    const entry=await writeExchangeFile(target,blob,stale);taken.add(target.toLowerCase());Object.assign(e,{file:target,fileStamp:stampOf(entry),local:d.updatedAt,title:d.title});delete e.side;delete e.sideStamp;c.written++;
+   }
+  }catch(err){c.failed++;c.errors.push(d.title+'：'+err.message);}
+ }
+ // notes deleted in 墨页: their files go to the Recycle Bin
+ for(const [id,e] of Object.entries(st.map)){
+  if(!e.deleted||e.removed)continue;
+  if(S.docs.some(d=>d.id===id)){delete e.deleted;continue;}
+  const names=[e.file,e.side,e.src].filter(p=>ix.has(p)).map(p=>ix.get(p).name);
+  for(const f of scan.files)if(!f.folder&&isNoteFile(f.name)&&ofNote(f.name,id)&&!names.includes(f.name))names.push(f.name);
+  if(names.length){const r=await xcall('exchange:remove',{names,trash:true});c.removed+=r.removed;for(const n of r.failed||[]){const f=ix.get(n);if(f)st.ignore[f.name]=stampOf(f);}}
+  e.removed=true;
+ }
+ // forget notes that are gone for good, and failures of files no longer there
+ for(const [id,e] of Object.entries(st.map))if(e.removed&&![e.file,e.side,e.src].some(p=>ix.has(p)))st.map[id]={deleted:true,removed:true};
+ for(const k of Object.keys(st.failed))if(!ix.has(k))delete st.failed[k];
+ for(const k of Object.keys(st.ignore))if(!ix.has(k))delete st.ignore[k];
+ st.dirs=[...new Set([...scan.folders.filter(n=>!SYSTEM_DIR.test(n)&&!st.ignoreDirs.some(x=>samePath(x,n))),...S.folders.map(dirOfFolder).filter(Boolean)])];
+}
+// One round: folder → 墨页, then 墨页 → folder. Runs a moment after saving, when 墨页 comes back to the front, when
+// something changes in the folder, at start-up, and from the dialog.
+async function syncLibrary({reason='manual'}={}){
+ if(!exchangeDesktop()||closing)return;
+ const manual=reason==='manual';
+ if(EXCHANGE.busy||importing){EXCHANGE.again=true;if(manual){EXCHANGE.againManual=true;toast('正在同步，请稍候');}return;}
+ EXCHANGE.busy=true; // claimed before the first await, so two rounds never interleave
+ const c={added:0,updated:0,moved:0,copies:0,folders:0,written:0,removed:0,failed:0,busy:0,gone:0,errors:[]};let started=false,ok=false;
+ try{
+  const st=await exchangeState(),status=EXCHANGE.status=await xcall('exchange:status').catch(()=>null);
+  if(!status?.folder||!status.exists){if(manual)toast(status?.folder?'找不到笔记库文件夹，请重新选择':'还没有选择笔记库文件夹',true);return;}
+  if(!manual&&!st.auto&&!['recheck','gone','later'].includes(reason))return;
+  adoptFolder(st,status.folder);if(manual)st.failed={};
+  started=true;EXCHANGE.again=false;EXCHANGE.recheck=false;EXCHANGE.later=false;EXCHANGE.progress='正在同步…';refreshExchangeBadge();
+  await flush();
+  await pullLibrary(st,await xcall('exchange:scan'),c);
+  // Files still being copied or moved: writing now could put back what is only moving. The next round (2 s) writes.
+  if(!EXCHANGE.recheck)await pushLibrary(st,await xcall('exchange:scan'),c);
+  st.lastSync=Date.now();if(c.added||c.updated||c.copies)st.lastImport=st.lastSync;if(c.written)st.lastExport=st.lastSync;ok=true;
+ }catch(e){if(manual)failure(e);else console.warn('笔记库同步：',e);}
+ finally{
+  if(started)await saveExchangeState().catch(()=>{});
+  EXCHANGE.busy=false;EXCHANGE.progress='';
+  if(c.added||c.updated||c.moved||c.copies||c.folders||c.gone){if(!S.active)renderLibrary();else refreshTitle();}
+  refreshExchangeBadge();
+  // Files still settling win over a plain repeat (a repeat does nothing while automatic sync is off; a recheck does).
+  let next=null;
+  if(started)next=EXCHANGE.recheck?'recheck':EXCHANGE.again?(EXCHANGE.againManual?'manual':'again'):null;
+  if(started&&!next&&EXCHANGE.later)next='later';
+  else if(EXCHANGE.againManual)next='manual';
+  if(!started)EXCHANGE.again=false;
+  EXCHANGE.againManual=false;if(next)scheduleSync(next,next==='recheck'?2000:next==='later'?16000:1200);
+ }
+ if(!started)return;
+ const parts=[c.added&&`导入 ${c.added} 个`,c.updated&&`更新 ${c.updated} 本`,c.moved&&`${c.moved} 本跟着文件移动或改名`,c.copies&&`${c.copies} 本两边都改过，另存为「…（导入版本）」`,c.folders&&'侧边栏文件夹已更新',c.busy&&`${c.busy} 本正在打开，关闭后再更新`].filter(Boolean);
+ // the same problem (a file locked by another program, say) is reported once every ten minutes, not after every save
+ const errors=c.errors.filter(m=>manual||Date.now()-(EXCHANGE.shown.get(m)||0)>600000);for(const m of errors)EXCHANGE.shown.set(m,Date.now());
+ if(errors.length)toast('笔记库文件夹：'+errors.slice(0,2).join('；')+(errors.length>2?` 等 ${errors.length} 个问题`:''),true);
+ if(parts.length)toast('笔记库文件夹：'+parts.join('，'));
+ else if(manual&&ok&&!EXCHANGE.recheck)toast(c.written||c.removed?`已同步：写入 ${c.written} 个文件`+(c.removed?`，${c.removed} 个移到回收站`:''):'笔记库文件夹已是最新');
+ if(c.gone){if(!S.active&&!modal.open)goneDialog();else toast(`笔记库文件夹里删除了 ${c.gone} 个文件，回到主页后处理`);}
+}
+function goneDialog(){
+ const st=EXCHANGE.state;if(!st?.gone?.length)return;
+ dialog('文件夹里删除了一些文件',`<p class="help-note">下面 ${st.gone.length} 本笔记对应的文件已经不在笔记库文件夹里了。墨页还保留着它们。</p><ul class="gone-list">${st.gone.slice(0,50).map(g=>`<li><strong>${E(g.title)}</strong><small>${E(g.path)}</small></li>`).join('')}${st.gone.length>50?`<li><small>…以及另外 ${st.gone.length-50} 本</small></li>`:''}</ul>
+  <div class="menu-choices"><button type="button" id="gone-keep">${icon('refresh')}<span>保留，并把文件放回文件夹<small>墨页里的笔记不变，文件会重新写回去</small></span></button><button type="button" id="gone-delete">${icon('trash')}<span>在墨页中也删除<small>这些笔记会从墨页移除，无法撤销</small></span></button></div>`,{size:'mid'});
+ $('#gone-keep').onclick=()=>run(async()=>{closeModal();await resolveGone(true);});
+ $('#gone-delete').onclick=()=>run(async()=>{closeModal();await resolveGone(false);});
+}
+async function resolveGone(keep){
+ const st=await exchangeState(),open=new Set([S.active,S.split?.id].filter(Boolean)),todo=st.gone.filter(g=>keep||!open.has(g.id));
+ st.gone=st.gone.filter(g=>!todo.includes(g));let n=0;
+ if(keep){
+  for(const g of todo){const e=st.map[g.id];if(e)for(const k of ['file','fileStamp','src','srcStamp','srcSize'])delete e[k];const d=S.docs.find(x=>x.id===g.id);if(d?.folder&&!S.folders.includes(d.folder))S.folders.push(d.folder);}
+  await store.setSetting('folders',S.folders);
+ }else{
+  await flush();
+  for(const g of todo){if(!S.docs.some(d=>d.id===g.id))continue;await store.remove(g.id);S.docs=S.docs.filter(x=>x.id!==g.id);S.tabs=S.tabs.filter(x=>x!==g.id);history.delete(g.id);const e=st.map[g.id];if(e)e.deleted=true;n++;}
+ }
+ await saveExchangeState();if(!S.active)renderLibrary();
+ toast(keep?`已保留 ${todo.length} 本笔记，文件会放回文件夹`:`已删除 ${n} 本笔记`+(st.gone.length?`，${st.gone.length} 本正在打开，先保留`:''));
+ await syncLibrary({reason:'gone'});
+}
+// Picking the folder. A folder that already holds other things (Documents, say) is not taken over silently.
+async function chooseLibraryFolder(){
+ const s=EXCHANGE.status=await xcall('exchange:choose');refreshExchangeBadge();if(!s?.folder)return;
+ const st=await exchangeState();if(st.folder===s.folder){await syncLibrary({reason:'manual'});return;}
+ adoptFolder(st,s.folder);await saveExchangeState();
+ const scan=await xcall('exchange:scan'),dirs=scan.folders.filter(n=>!SYSTEM_DIR.test(n));
+ const notes=new Set(scan.files.filter(f=>isNoteFile(f.name)).map(f=>dirOfPath(f.name).toLowerCase()));
+ const foreign=dirs.filter(n=>!S.folders.some(f=>samePath(dirOfFolder(f),n))&&!notes.has(n.toLowerCase()));
+ const ix=scanIndex(scan),sources=scan.files.filter(f=>!isNoteFile(f.name)&&!ix.has(f.name+'.inknote'));
+ if(!foreign.length&&!sources.length){toast('笔记库文件夹已设为 '+s.folder);await syncLibrary({reason:'manual'});return;}
+ // Until the user answers, nothing that was already there is imported.
+ for(const f of sources)st.ignore[f.name]=stampOf(f);st.ignoreDirs=foreign;await saveExchangeState();
+ dialog('这个文件夹里已经有东西了',`<p class="help-note">「${E(s.folder)}」里有 ${foreign.length} 个子文件夹、${sources.length} 个 PDF / 电子书${sources.length?'（共 '+sizeText(sources.reduce((n,f)=>n+f.size,0))+'）':''}。笔记库文件夹里的子文件夹会变成侧边栏的文件夹，PDF 和电子书会导入墨页。</p>
+  <div class="menu-choices"><button type="button" id="lib-sub">${icon('folder-open')}<span>在里面新建「墨页笔记库」文件夹（推荐）<small>已有的东西保持原样，墨页只用这个新文件夹</small></span></button>
+  <button type="button" id="lib-all">${icon('download')}<span>就用这个文件夹，导入里面的东西<small>子文件夹变成侧边栏文件夹，PDF / 电子书导入墨页</small></span></button>
+  <button type="button" id="lib-skip">${icon('check')}<span>就用这个文件夹，但不导入已有的东西<small>只放进墨页的笔记；以后新复制进来的文件才会导入</small></span></button></div>`,{size:'mid'});
+ $('#lib-sub').onclick=()=>run(async()=>{closeModal();EXCHANGE.status=await xcall('exchange:use-sub',{folder:'墨页笔记库'});adoptFolder(st,EXCHANGE.status.folder);await saveExchangeState();toast('笔记库文件夹已设为 '+EXCHANGE.status.folder);await syncLibrary({reason:'manual'});});
+ $('#lib-all').onclick=()=>run(async()=>{closeModal();st.ignore={};st.ignoreDirs=[];await saveExchangeState();await syncLibrary({reason:'manual'});});
+ $('#lib-skip').onclick=()=>run(async()=>{closeModal();await syncLibrary({reason:'manual'});});
+}
+// Browser (no desktop app): one ZIP with every note, and import from picked files.
 async function exportAll(){
  if(EXCHANGE.busy){toast('正在处理，请稍候');return;}
- const st=await exchangeState();finishText();await flush();
- const notes=S.docs.filter(d=>!(d.sample&&d.sample===d.updatedAt)); // untouched sample notes exist on every computer already
- if(!exchangeDesktop()){ // browser: one ZIP holding every note's .inknote
-  EXCHANGE.busy=true;try{toast(`正在打包 ${notes.length} 本笔记…`);const entries=[];for(const d of notes)entries.push({name:exportName(d),data:new Uint8Array(await (await backupBlob(d)).arrayBuffer())});
-   for(const d of notes)st.map[d.id]={local:d.updatedAt};st.lastExport=Date.now();
-   if(await download(await writeZip(entries),'墨页全部笔记-'+new Date().toISOString().slice(0,10)+'.zip','application/zip')){await saveExchangeState();toast(`已导出 ${entries.length} 本笔记`);}
-  }finally{EXCHANGE.busy=false;refreshExchangeBadge();}return;
- }
- let status=EXCHANGE.status=await xcall('exchange:status');
- if(!status.folder||!status.exists){status=EXCHANGE.status=await xcall('exchange:choose');if(!status.folder)return;}
- EXCHANGE.busy=true;let written=0,skipped=0,removed=0;
- try{
-  const files=await xcall('exchange:list'),names=new Set(files.map(f=>f.name));toast(`正在导出 ${notes.length} 本笔记…`);
-  for(const d of notes){
-   const name=exportName(d),e=st.map[d.id],stale=files.filter(f=>f.name!==name&&ofNote(f.name,d.id)).map(f=>f.name);
-   if(e&&!e.deleted&&e.local===d.updatedAt&&names.has(name)&&!stale.length){skipped++;continue;}
-   await writeExchangeFile(name,await backupBlob(d),stale);st.map[d.id]={local:d.updatedAt};written++;
-  }
-  for(const [id,e] of Object.entries(st.map)){if(!e.deleted||e.removed||S.docs.some(d=>d.id===id))continue;const del=files.filter(f=>ofNote(f.name,id)).map(f=>f.name);if(del.length)removed+=(await xcall('exchange:remove',{names:del})).removed;e.removed=true;}
-  st.lastExport=Date.now();await saveExchangeState();
-  toast(`已导出到文件夹：写入 ${written} 本`+(skipped?`，${skipped} 本没有改动`:'')+(removed?`，移除 ${removed} 个已删除笔记的文件`:''));
+ const st=await exchangeState();finishText();await flush();const notes=S.docs.filter(mirrored);
+ EXCHANGE.busy=true;
+ try{toast(`正在打包 ${notes.length} 本笔记…`);const entries=[];for(const d of notes)entries.push({name:filename(d.title).slice(0,80)+'-'+shortId(d.id)+'.inknote',data:new Uint8Array(await (await backupBlob(d)).arrayBuffer())});
+  for(const d of notes)st.map[d.id]={...st.map[d.id],local:d.updatedAt};st.lastExport=Date.now();
+  if(await download(await writeZip(entries),'墨页全部笔记-'+new Date().toISOString().slice(0,10)+'.zip','application/zip')){await saveExchangeState();toast(`已导出 ${entries.length} 本笔记`);}
  }finally{EXCHANGE.busy=false;refreshExchangeBadge();}
 }
-// sources: [{name, blob:()=>Promise<Blob>}]; explicit = the user picked these files themselves.
+// sources: [{name, blob:()=>Promise<Blob>}] the user picked (.inknote files, or a ZIP of them).
 async function mergeImport(sources,{explicit=false}={}){
  if(EXCHANGE.busy||importing){toast('正在处理，请稍候');return;}
  const st=await exchangeState();finishText();await flush();EXCHANGE.busy=true;
@@ -1075,44 +1424,177 @@ async function mergeImport(sources,{explicit=false}={}){
      if(!id){await importBackup(null,{data,source});c.added++;continue;}
      const e=st.map[id],local=S.docs.find(d=>d.id===id),fUpd=Number.isFinite(raw.updatedAt)?raw.updatedAt:0;
      if(e?.deleted&&!local&&!explicit){c.deleted++;continue;}
-     if(!local){const nid=await importBackup(null,{data,source,keepId:true});st.map[nid]={local:S.docs.find(d=>d.id===nid).updatedAt};c.added++;continue;}
-     if(fUpd===local.updatedAt){st.map[id]={local:fUpd};c.same++;continue;}
+     if(!local){await importBackup(null,{data,source,keepId:true});if(e?.deleted)delete e.deleted;c.added++;continue;}
+     if(fUpd===local.updatedAt){c.same++;continue;}
      if(fUpd<local.updatedAt){c.older++;continue;}
-     if(!e||e.deleted||e.local!==local.updatedAt){raw.title=String(raw.title||'').slice(0,140)+'（导入版本）';await importBackup(null,{data,source});c.copies++;continue;}
      if(open.has(id)){c.busy++;continue;}
-     await importBackup(null,{data,source,keepId:true});st.map[id]={local:S.docs.find(d=>d.id===id).updatedAt};c.updated++;
+     if(!e||e.local!==local.updatedAt){raw.title=String(raw.title||'').slice(0,140)+'（导入版本）';await importBackup(null,{data,source});c.copies++;continue;}
+     await importBackup(null,{data,source,keepId:true,keepBinary:!source});c.updated++;
     }catch(err){c.failed++;failure(new Error(`${it.name}：${err.message}`));}
    }
   }
   st.lastImport=Date.now();await saveExchangeState();
   if(!S.active)renderLibrary();else refreshTitle();
   const parts=[c.added&&`新增 ${c.added} 本`,c.updated&&`更新 ${c.updated} 本`,c.copies&&`${c.copies} 本两边都改过，另存为「…（导入版本）」`,(c.same+c.older)&&`${c.same+c.older} 本本机已是最新`,c.deleted&&`跳过 ${c.deleted} 本你在本机删除过的笔记`,c.busy&&`${c.busy} 本正在打开，关闭后再导入一次`,c.failed&&`${c.failed} 个文件失败`].filter(Boolean);
-  toast(parts.length?'导入完成：'+parts.join('，'):'文件夹里没有墨页笔记（.inknote）');
- }finally{EXCHANGE.busy=false;refreshExchangeBadge();}
-}
-async function importFromFolder(){
- if(!exchangeDesktop()){$('#merge-input').click();return;}
- let status=EXCHANGE.status=await xcall('exchange:status');
- if(!status.folder||!status.exists){status=EXCHANGE.status=await xcall('exchange:choose');if(!status.folder)return;}
- const files=await xcall('exchange:list');
- await mergeImport(files.map(f=>({name:f.name,blob:()=>readExchangeFile(f)})));
+  toast(parts.length?'导入完成：'+parts.join('，'):'没有找到墨页笔记（.inknote）');
+ }finally{EXCHANGE.busy=false;refreshExchangeBadge();scheduleSync('import',1500);}
 }
 async function exchangeDialog(){
- const st=await exchangeState();if(exchangeDesktop())EXCHANGE.status=await xcall('exchange:status').catch(()=>null);
- const f=EXCHANGE.status?.folder,missing=f&&!EXCHANGE.status.exists;
- const when=t=>t?new Date(t).toLocaleString('zh-CN',{hour12:false}):'还没有';
- const folderRow=exchangeDesktop()?`<div class="exchange-folder">${icon('folder')}<div><strong>${f?E(f):'还没有选择文件夹'}</strong><small>${missing?'<span class="exchange-error">找不到这个文件夹，请重新选择</span>':f?'上次导出：'+E(when(st.lastExport))+' · 上次导入：'+E(when(st.lastImport)):'第一次导出或导入时会请你选择'}</small></div></div>`:'';
- dialog('导入导出',`${folderRow}
-  <div class="menu-choices"><button type="button" id="x-export">${icon('download')}<span>一键导出全部笔记<small>${exchangeDesktop()?'每本笔记一个 .inknote 文件，放进上面的文件夹；没改动的会跳过':'打包成一个 .zip 文件下载'}</small></span></button>
-  ${exchangeDesktop()?`<button type="button" id="x-import">${icon('upload')}<span>从文件夹一键导入<small>读取文件夹里的全部 .inknote：新的加入，更新过的替换，本机已是最新的跳过</small></span></button>`:''}
-  <button type="button" id="x-pick">${icon('file')}<span>选择文件导入…<small>选一个或多个 .inknote 文件，或导出的 .zip 压缩包</small></span></button>
-  ${exchangeDesktop()?`<button type="button" id="x-choose">${icon('folder')}<span>${f?'更换文件夹':'选择文件夹'}<small>可以选网盘的同步文件夹（OneDrive、百度网盘、Google 云端硬盘等）或 U 盘</small></span></button>${f&&!missing?`<button type="button" id="x-open">${icon('chevron')}<span>在资源管理器中打开这个文件夹</span></button>`:''}`:''}</div>
-  <p class="help-note">换电脑时：在这台电脑点「一键导出」，把文件夹（或里面的文件）通过网盘、U 盘带到另一台电脑，再在那边「导入」。同一本笔记再次导入会更新它，不会重复；两边都改过的，另存一份「…（导入版本）」，不会丢内容。</p>`);
- $('#x-export').onclick=()=>run(async()=>{closeModal();await exportAll();});
- if($('#x-import'))$('#x-import').onclick=()=>run(async()=>{closeModal();await importFromFolder();});
+ if(!exchangeDesktop()){
+  dialog('导入导出',`<div class="menu-choices"><button type="button" id="x-export">${icon('download')}<span>一键导出全部笔记<small>打包成一个 .zip 文件下载</small></span></button><button type="button" id="x-pick">${icon('file')}<span>选择文件导入…<small>选一个或多个 .inknote 文件，或导出的 .zip 压缩包</small></span></button></div><p class="help-note">在桌面版里可以设置「笔记库文件夹」：笔记以普通文件放在你选的文件夹里，复制进去的 PDF、电子书会自动导入。</p>`);
+  $('#x-export').onclick=()=>run(async()=>{closeModal();await exportAll();});$('#x-pick').onclick=()=>{closeModal();$('#merge-input').click();};return;
+ }
+ const st=await exchangeState();EXCHANGE.status=await xcall('exchange:status').catch(()=>null);
+ const f=EXCHANGE.status?.folder,missing=!!f&&!EXCHANGE.status.exists,ready=!!f&&!missing;
+ dialog('笔记库文件夹',`<div class="exchange-folder">${icon('folder')}<div><strong>${f?E(f):'还没有选择文件夹'}</strong><small>${missing?'<span class="exchange-error">找不到这个文件夹（可能被移动、改名，或 U 盘没有插上）。插上后会自动恢复，也可以重新选择。</span>':f?'上次同步：'+E(st.lastSync?ago(st.lastSync):'还没有'):'选好以后，墨页会把全部笔记以普通文件放进去，并和侧边栏保持一致'}</small></div></div>
+  ${st.gone.length?`<button type="button" class="exchange-alert" id="x-gone">${icon('info')}<span>${st.gone.length} 个文件已从文件夹删除 · 点这里处理</span></button>`:''}
+  ${ready?`<label class="switch setting-switch exchange-auto"><input type="checkbox" id="x-auto" role="switch" ${st.auto?'checked':''}><span class="switch-track" aria-hidden="true"></span><span class="switch-label"><strong>自动同步</strong><small>保存笔记后、切回墨页时、文件夹里有变化时自动同步</small></span></label>`:''}
+  <div class="menu-choices">${ready?`<button type="button" id="x-sync">${icon('sync')}<span>立即同步<small>导入文件夹里新增或改过的文件，并把墨页里的改动写进去</small></span></button><button type="button" id="x-open">${icon('folder-open')}<span>在资源管理器中打开<small>可以直接把 PDF、电子书或整个文件夹复制进去</small></span></button>`:''}
+  <button type="button" id="x-choose">${icon('folder')}<span>${f?'更换文件夹':'选择笔记库文件夹'}<small>可以选网盘的同步文件夹（OneDrive、百度网盘等），或 U 盘里的文件夹</small></span></button>
+  <button type="button" id="x-pick">${icon('file')}<span>从文件导入…<small>选一个或多个 .inknote 文件，或导出的 .zip 压缩包</small></span></button></div>
+  <details class="exchange-help"><summary>文件夹里是什么样子？</summary><ul>
+   <li>每个子文件夹对应侧边栏的一个文件夹，直接放在最外面的是「未分类」。新建子文件夹，侧边栏里就会多一个文件夹。</li>
+   <li>导入的 PDF、电子书就是原来的文件；旁边同名的「….pdf.inknote」保存你的批注，两个放在一起。</li>
+   <li>手写笔记、帖子保存为「标题-编号.inknote」。</li>
+   <li>把 PDF、电子书复制到某个子文件夹里，就会导入到侧边栏对应的文件夹。在子文件夹之间移动文件，笔记也跟着移动。</li>
+   <li>在墨页里重命名、移动笔记，文件也会跟着改；在墨页里删除笔记，对应的文件移到回收站。</li>
+   <li>在文件夹里删除了文件，墨页会先问你要不要也删掉笔记。</li>
+   <li>换电脑：两台电脑选同一个网盘同步文件夹；或者把整个文件夹复制过去，在新电脑上选它。</li></ul></details>`,{size:'mid'});
+ $('#x-choose').onclick=()=>run(async()=>{closeModal();await chooseLibraryFolder();});
  $('#x-pick').onclick=()=>{closeModal();$('#merge-input').click();};
- if($('#x-choose'))$('#x-choose').onclick=()=>run(async()=>{EXCHANGE.status=await xcall('exchange:choose');closeModal();refreshExchangeBadge();if(EXCHANGE.status.folder)toast('导入导出文件夹已设为 '+EXCHANGE.status.folder);});
+ if($('#x-sync'))$('#x-sync').onclick=()=>run(async()=>{closeModal();await syncLibrary({reason:'manual'});});
  if($('#x-open'))$('#x-open').onclick=()=>run(()=>xcall('exchange:open'));
+ if($('#x-gone'))$('#x-gone').onclick=()=>goneDialog();
+ if($('#x-auto'))$('#x-auto').onchange=e=>run(async()=>{st.auto=e.target.checked;await saveExchangeState();refreshExchangeBadge();if(st.auto)scheduleSync('auto',300);});
+}
+// Keep the folder up to date: after saves (store.save covers renames and moves too), on focus, on folder changes.
+function startLibrarySync(){
+ if(!exchangeDesktop())return;
+ const save0=store.save;store.save=async d=>{const r=await save0(d);if(!EXCHANGE.busy)scheduleSync('save',3000);else EXCHANGE.again=true;return r;};
+ window.desktop.onExchangeChange?.(()=>scheduleSync('watch',700));
+ window.addEventListener('focus',()=>scheduleSync('focus',600));
+ scheduleSync('startup',1500);
+}
+window.__inknoteLibrary=()=>({busy:EXCHANGE.busy,scheduled:!!EXCHANGE.scheduled,lastSync:EXCHANGE.state?.lastSync||0,gone:(EXCHANGE.state?.gone||[]).map(g=>g.id),folder:EXCHANGE.status?.folder||null,map:EXCHANGE.state?.map||{}}); // for diagnostics and tests
+// ---------- Plugins (host side) ----------
+// Canvases, posts and reading are plugins (app/plugins/<id>/, plus user-installed ones in the app data folder).
+// The page editor calls the active note's page extension at a few fixed points: mount → pageShown → changed → unmount,
+// underlay (drawn under the live annotations) and displayAnnotations (thumbnails, page pictures, PDF export).
+let mountedExt=null,pluginState={},pluginsReady=false;
+const pluginBridge=()=>{try{return window.desktop?.plugins?window.desktop:(EMBED&&window.parent.desktop?.plugins?window.parent.desktop:null);}catch{return null;}};
+async function pcall(channel,payload){const b=pluginBridge();if(!b)throw new Error('安装插件只在墨页桌面版中可用。');const r=await b.plugins(channel,payload);if(r?.error)throw new Error(r.error);return r?.value;}
+function extCall(name){const d=S.active?doc():null,p=d?page():null;if(!p||d.kind==='discussion')return;const ext=P.pageExtension(d);if(!ext?.[name])return;try{ext[name](p);}catch(e){console.error('plugin '+name,e);}}
+function extUnmount(){const m=mountedExt;mountedExt=null;if(m?.unmount){try{m.unmount();}catch(e){console.error('plugin unmount',e);}}}
+function displayAnns(q,d=doc()){const ext=P.pageExtension(d);if(ext?.displayAnnotations&&q.ext?.[ext.key]){try{const list=ext.displayAnnotations(q);if(Array.isArray(list))return list;}catch(e){console.error('plugin displayAnnotations',e);}}return q.annotations;}
+function unsupportedFile(name){const ext=name.split('.').pop().toLowerCase(),owner=P.plugins().find(p=>p.manifest.fileTypes?.includes(ext));if(owner)return `打开 .${ext} 文件需要「${owner.manifest.name}」插件，请在「设置 → 插件」中${owner.removed?'重新安装':'启用'}它。`;return `墨页还不能打开 .${ext} 文件：没有插件处理这种格式。`;}
+function refreshAccept(){const input=$('#file-input');if(!input)return;const exts=new Set(['inknote']);for(const i of P.importers())for(const e of i.extensions)exts.add(e);input.accept=[...exts].map(e=>'.'+e).join(',');}
+function copyText(text){const t=document.createElement('textarea');t.value=text;t.style.cssText='position:fixed;left:-9999px;top:0';document.body.append(t);t.select();const ok=document.execCommand('copy');t.remove();return ok;}
+function pluginMenu(title,items,{subtitle=''}={}){
+ dialog(title,`<div class="menu-choices">${items.map((it,i)=>it.separator?'<div class="menu-sep"></div>':`<button type="button" data-menu-item="${i}" class="${it.danger?'danger':''}" ${it.disabled?'disabled':''}>${icon(it.icon||'chevron')}<span>${E(it.label)}${it.sub?`<small>${E(it.sub)}</small>`:''}</span></button>`).join('')}</div>`,{subtitle});
+ modal.querySelectorAll('[data-menu-item]').forEach(b=>b.onclick=()=>{const it=items[+b.dataset.menuItem];closeModal();run(()=>it.run?.());});
+}
+function pluginMissing(d){
+ const o=P.ownerOf(d);
+ if(o&&!o.error){dialog('需要插件',`<p class="help-note">「${E(d.title)}」需要「${E(o.manifest.name)}」插件才能打开。这个插件现在${o.removed?'已卸载':'停用了'}，笔记内容都还在。</p><div class="modal-actions"><button class="btn ghost" type="button" data-cancel>取消</button><button class="btn primary" type="button" id="enable-owner">${o.removed?'重新安装并打开':'启用并打开'}</button></div>`);$('#enable-owner').onclick=()=>run(async()=>{closeModal();await setPluginEnabled(o.manifest.id,true);await openDoc(d.id);});return;}
+ dialog('需要插件',`<p class="help-note">「${E(d.title)}」由${o?`「${E(o.manifest.name)}」插件创建，但这个插件启动失败：${E(o.error)}`:'一个还没有安装的插件创建，请先安装对应的插件'}。笔记内容都还在，也可以先在「⋮」菜单里导出备份。</p>${actions('知道了')}`,{submit:()=>closeModal()});
+}
+const pluginServices={
+ appVersion:APP_VERSION,icon:(n,c)=>icon(n,c),escape:s=>E(s),toast,dialog,closeModal,ask,actions,run,menu:pluginMenu,
+ refreshLibrary:()=>{if(pluginsReady&&!S.active&&$('.library'))renderLibrary();},
+ createNotebook:async(o={})=>{const ct=P.canvasType(o.canvasType||'plain');if(!ct)throw new Error('没有这种画布类型：'+o.canvasType);const mode=ct.paperModes.includes(o.mode)?o.mode:ct.paperModes[0],template=['blank','ruled','grid','dot'].includes(o.template)?o.template:ct.defaultTemplate,title=String(o.title||'未命名笔记').slice(0,100);
+  const d={id:uid(),title,kind:'notebook',canvasType:ct.id,color:TONES.includes(o.color)?o.color:'olive',folder:S.folders.includes(o.folder)?o.folder:'',createdAt:Date.now(),updatedAt:Date.now(),pages:[makeCanvasPage(template,mode==='infinite',ct.id,{spacing:o.spacing||'standard',title:DEFAULT_TITLES.includes(title)?'':title})],lastPage:0};await store.save(d);S.docs.push(d);return d;},
+ newNotebookDialog:o=>newNotebook(o.canvasType),pickFiles:()=>$('#file-input').click(),
+ importPdf:f=>importPdf(f),importEbook:f=>importEbook(f),newPost:()=>newDiscussion(),uid,
+ docs:{all:()=>S.docs.slice(),get:id=>S.docs.find(d=>d.id===id),
+  create:async d=>{if(!d||typeof d.title!=='string'||!Array.isArray(d.pages)||!d.pages.length)throw new Error('笔记数据无效：需要 title 和 pages。');d.id=d.id||uid();d.createdAt=d.createdAt||Date.now();d.updatedAt=Date.now();d.lastPage=d.lastPage||0;await store.save(d);S.docs.push(d);return d;},
+  save:async(d,{touch=true}={})=>{if(touch)d.updatedAt=Date.now();await store.save(d);},open:id=>openDoc(id)},
+ ink:{drawAnnotation,bounds,hitAnnotation,PAPER,COLORS,MARKERS,prepareRich:(list,scale)=>prepareRich(list,scale)},
+ editor:{
+  doc:()=>S.active?doc()||null:null,page:()=>S.active?page()||null:null,pageIndex:()=>S.page,
+  stage:()=>document.querySelector('.editor .stage'),
+  redraw:()=>{if(S.active&&page()&&!page().infinite)drawInk();},
+  snapshot:()=>pageSnapshot(),commit:before=>{remember(before);if(page()&&!page().infinite)drawInk();},
+  save:(touch=false)=>save(touch),refreshThumbnail:()=>updateThumb(S.page),
+  zoom:()=>S.zoom,inkSize:()=>{const c=$('#ink-canvas');return c?{width:c.width,height:c.height}:null;},
+  finishText:()=>finishText(),clearSelection:()=>{if(S.selection.size){S.selection.clear();refreshSelectionBar();}},
+  dock:()=>S.toolbarDock,
+ },
+};
+const makeApi=p=>P.createApi(p,pluginServices);
+const userBase=id=>new URL(`user-plugins/${encodeURIComponent(id)}/`,location.href).href;
+async function userPluginSources(){if(!pluginBridge())return [];try{return (await pcall('plugins:list')||[]).map(x=>({id:x.id,base:userBase(x.id),source:'user',stamp:x.stamp}));}catch(e){console.warn('user plugins',e);return [];}}
+async function loadPlugins(){
+ pluginState=await store.setting('plugins')||{};
+ let builtin=[];try{builtin=await (await fetch('plugins/builtin.json',{cache:'no-store'})).json();}catch(e){console.warn('built-in plugins',e);}
+ const sources=(Array.isArray(builtin)?builtin:[]).filter(id=>typeof id==='string'&&/^[a-z0-9][a-z0-9-]{1,40}$/.test(id)).map(id=>({id,base:new URL(`plugins/${id}/`,location.href).href,source:'builtin'}));
+ sources.push(...await userPluginSources());
+ await P.discover(sources,pluginState,APP_VERSION);await P.activateAll(makeApi);
+ pluginsReady=true;refreshAccept();
+}
+setPageDecorator((ctx,q)=>{for(const c of P.canvasTypes()){const h=c.page;if(h?.decorate&&q.ext?.[h.key]){try{h.decorate(ctx,q);}catch(e){console.error('plugin decorate',e);}}}});
+P.onPluginsChanged(()=>{if(!pluginsReady)return;refreshAccept();if(!S.active&&$('.library'))renderLibrary();});
+window.__inknoteState=()=>({active:S.active,view:S.view,pluginsReady,embedded:EMBED});  // read-only, for tests and diagnostics
+async function savePluginState(){await store.setSetting('plugins',pluginState);}
+async function leaveIfOpen(id){const uses=x=>{const d=S.docs.find(y=>y.id===x);return d&&(P.ownerOf(d)?.manifest.id===id||P.docTypeOf(d)?.pluginId===id);};if((S.active&&uses(S.active))||(S.split&&uses(S.split.id)))await goHome();}
+async function setPluginEnabled(id,on){
+ const p=P.plugin(id);if(!p)return;if(!on)await leaveIfOpen(id);
+ pluginState[id]={enabled:on,removed:on?false:!!pluginState[id]?.removed};await savePluginState();
+ p.enabled=on;if(on){p.removed=false;await P.activate(id,makeApi);if(p.error)throw new Error(`「${p.manifest.name}」启动失败：${p.error}`);}else{await P.deactivate(id);P.removeStyles(id);}
+}
+async function uninstallPlugin(id){
+ const p=P.plugin(id);if(!p)return;await leaveIfOpen(id);await P.deactivate(id);P.removeStyles(id);
+ if(p.source==='user'){await pcall('plugins:remove',{id});P.forget(id);pluginState[id]={enabled:true,removed:false};
+  if(p.builtinBase){await P.discover([{id,base:p.builtinBase,source:'builtin'}],pluginState,APP_VERSION);await P.activate(id,makeApi);}}
+ else{p.enabled=false;p.removed=true;pluginState[id]={enabled:false,removed:true};}
+ await savePluginState();
+}
+async function afterInstall(id,stamp){
+ if(P.plugin(id)?.active){await leaveIfOpen(id);await P.deactivate(id);}P.removeStyles(id);
+ pluginState[id]={enabled:true,removed:false};await savePluginState();
+ await P.discover([{id,base:userBase(id),source:'user',stamp}],pluginState,APP_VERSION);
+ const p=await P.activate(id,makeApi);if(p?.error)throw new Error(`「${p.manifest.name}」已复制到插件文件夹，但没有启动：${p.error}`);
+ toast(`插件「${p.manifest.name}」已安装并启用`);
+}
+async function installPluginFile(file){
+ if(!window.JSZip)throw new Error('解压组件没有加载。');if(file.size>64*1024*1024)throw new Error('插件包超过 64 MB。');
+ const zip=await window.JSZip.loadAsync(file),names=Object.keys(zip.files).filter(n=>!zip.files[n].dir);
+ const mf=names.filter(n=>n.split('/').pop()==='plugin.json').sort((a,b)=>a.split('/').length-b.split('/').length)[0];if(!mf)throw new Error('插件包里没有 plugin.json。');
+ const prefix=mf.slice(0,-'plugin.json'.length),manifest=P.checkManifest(JSON.parse(await zip.file(mf).async('string')));
+ const files=[];let total=0;
+ for(const n of names){if(!n.startsWith(prefix))continue;const rel=n.slice(prefix.length);if(!rel||rel.split('/').some(x=>!x||x==='..'||x.startsWith('.')))continue;const bytes=await zip.file(n).async('uint8array');total+=bytes.length;if(total>64*1024*1024||files.length>=2000)throw new Error('插件包过大。');files.push({path:rel,bytes});}
+ const r=await pcall('plugins:install',{id:manifest.id,files});await afterInstall(manifest.id,r.stamp);
+}
+async function rescanPlugins({quiet=false}={}){
+ const list=await userPluginSources(),changes=[];
+ for(const src of list){const cur=P.plugin(src.id);if(cur&&cur.source==='user'&&cur.stamp===src.stamp)continue;if(cur?.active){await leaveIfOpen(src.id);await P.deactivate(src.id);}P.removeStyles(src.id);await P.discover([src],pluginState,APP_VERSION);const p=P.plugin(src.id);if(p.enabled&&!p.error)await P.activate(src.id,makeApi);changes.push(p.manifest.name);}
+ for(const p of P.plugins())if(p.source==='user'&&!list.some(x=>x.id===p.manifest.id)){const id=p.manifest.id;await leaveIfOpen(id);await P.deactivate(id);P.removeStyles(id);P.forget(id);if(p.builtinBase){await P.discover([{id,base:p.builtinBase,source:'builtin'}],pluginState,APP_VERSION);await P.activate(id,makeApi);}changes.push(p.manifest.name);}
+ if(changes.length)toast(`插件文件夹有变化，已更新：${changes.join('、')}`);else if(!quiet)toast('插件文件夹没有变化');
+ return changes.length;
+}
+let rescanTimer=0;window.addEventListener('focus',()=>{if(!pluginsReady||EMBED||!pluginBridge())return;clearTimeout(rescanTimer);rescanTimer=setTimeout(()=>run(()=>rescanPlugins({quiet:true})),400);});
+async function pluginManager(){
+ const bridge=!!pluginBridge(),all=P.plugins(),order=p=>p.source==='builtin'?0:1;
+ const row=p=>`<div class="plugin-row ${p.enabled?'':'off'}" data-plugin="${E(p.manifest.id)}"><span class="plugin-icon">${pIcon(p.manifest.icon,p.manifest.id)}</span><div class="plugin-text"><strong>${E(p.manifest.name)}</strong><span class="plugin-meta">${E(p.manifest.version)} · ${p.source==='user'?'已安装':'内置'}${p.manifest.author?' · '+E(p.manifest.author):''}</span><small>${E(p.manifest.description)}</small>${p.error?`<small class="plugin-error">${E(p.error)}</small>`:''}</div><label class="switch plugin-switch" title="${p.enabled?'点击停用':'点击启用'}"><input type="checkbox" role="switch" data-plugin-toggle ${p.enabled?'checked':''} ${p.error?'disabled':''} aria-label="启用「${E(p.manifest.name)}」"><span class="switch-track" aria-hidden="true"></span></label><button type="button" class="icon-btn" data-plugin-remove title="卸载" aria-label="卸载「${E(p.manifest.name)}」">${icon('trash')}</button></div>`;
+ const gone=p=>`<div class="plugin-row off" data-plugin="${E(p.manifest.id)}"><span class="plugin-icon">${pIcon(p.manifest.icon,p.manifest.id)}</span><div class="plugin-text"><strong>${E(p.manifest.name)}</strong><span class="plugin-meta">${E(p.manifest.version)} · 内置 · 已卸载</span><small>${E(p.manifest.description)}</small></div><button type="button" class="btn tonal small" data-plugin-restore>${icon('install')}重新安装</button></div>`;
+ const active=all.filter(p=>!p.removed).sort((a,b)=>order(a)-order(b)),removed=all.filter(p=>p.removed);
+ dialog('插件',`<p class="help-note">墨页本身是一个载体：能新建和打开什么，由下面的插件决定。停用或卸载插件后，它的入口会隐藏，已有笔记都会保留，重新启用即可打开。</p><div class="plugin-list">${active.map(row).join('')||'<p class="help-note">还没有插件。</p>'}</div>${removed.length?`<div class="field-label">已卸载的内置插件</div><div class="plugin-list">${removed.map(gone).join('')}</div>`:''}
+  <div class="menu-choices">${bridge?`<button type="button" id="plugin-install-file">${icon('install')}<span>从文件安装插件…<small>.inkplugin 或 .zip 插件包</small></span></button><button type="button" id="plugin-install-folder">${icon('folder-open')}<span>从文件夹安装插件…<small>选一个包含 plugin.json 的文件夹</small></span></button><button type="button" id="plugin-open-folder">${icon('folder')}<span>打开插件文件夹<small>也可以把插件文件夹直接复制进去，回到墨页时会自动扫描</small></span></button>`:''}<button type="button" id="plugin-guide">${icon('code')}<span>插件开发指南<small>想让其他 AI 做新模块：把需求和这份指南一起发给它</small></span></button></div>${bridge?'':'<p class="field-hint">浏览器预览版只能使用内置插件，安装插件请使用墨页桌面版。</p>'}`,{subtitle:`插件接口版本 ${P.API_VERSION} · 墨页 ${APP_VERSION}`,size:'mid'});
+ modal.querySelectorAll('[data-plugin-toggle]').forEach(t=>t.onchange=()=>run(async()=>{const id=t.closest('[data-plugin]').dataset.plugin,name=P.plugin(id)?.manifest.name;try{await setPluginEnabled(id,t.checked);toast(t.checked?`已启用「${name}」`:`已停用「${name}」：入口已隐藏，笔记保留`);}finally{await pluginManager();}}));
+ modal.querySelectorAll('[data-plugin-remove]').forEach(b=>b.onclick=()=>{const id=b.closest('[data-plugin]').dataset.plugin,p=P.plugin(id);
+  dialog(`卸载「${p.manifest.name}」？`,`<p class="help-note">${p.source==='user'?'会从插件文件夹删除这个插件。':'这是内置插件，卸载后可以随时在这里重新安装。'}用它创建的笔记都会保留，重新安装后就能打开。</p>${actions('卸载',true)}`,{submit:async()=>{closeModal();try{await uninstallPlugin(id);toast(`已卸载「${p.manifest.name}」`);}finally{await pluginManager();}}});});
+ modal.querySelectorAll('[data-plugin-restore]').forEach(b=>b.onclick=()=>run(async()=>{const id=b.closest('[data-plugin]').dataset.plugin;try{await setPluginEnabled(id,true);toast(`已重新安装「${P.plugin(id).manifest.name}」`);}finally{await pluginManager();}}));
+ $('#plugin-guide').onclick=()=>run(pluginGuide);
+ if(!bridge)return;
+ $('#plugin-install-file').onclick=()=>{closeModal();$('#plugin-input').click();};
+ $('#plugin-install-folder').onclick=()=>run(async()=>{closeModal();const r=await pcall('plugins:install-folder');if(r?.id)await afterInstall(r.id,r.stamp);});
+ $('#plugin-open-folder').onclick=()=>run(()=>pcall('plugins:open-folder'));
+}
+async function pluginGuide(){
+ let md='';try{const r=await fetch('plugin-sdk/'+encodeURIComponent('插件开发指南.md'),{cache:'no-store'});if(r.ok)md=await r.text();}catch{}
+ if(!md)throw new Error('找不到插件开发指南文件。');
+ dialog('插件开发指南',`<div class="guide-view rich">${markdownToHtml(md)}</div><div class="modal-actions">${pluginBridge()?`<button class="btn ghost" type="button" id="guide-folder">${icon('folder-open')}打开开发包文件夹</button>`:''}<button class="btn tonal" type="button" id="guide-copy">${icon('copy')}复制全文（发给 AI）</button><button class="btn primary" type="button" data-cancel>完成</button></div>`,{subtitle:`插件接口版本 ${P.API_VERSION} · 开发包里还有接口类型文件和示例插件`,size:'wide'});
+ $('#guide-copy').onclick=()=>{const ok=copyText(md);toast(ok?'已复制。把它和你的需求一起发给 AI，它就知道新模块要遵守哪些约定':'复制没有成功，请打开开发包文件夹复制文件',!ok);};
+ $('#guide-folder')?.addEventListener('click',()=>run(()=>pcall('plugins:open-sdk')));
 }
 const handlers={
  'view':b=>{S.view=b.dataset.value;S.query='';renderLibrary();},
@@ -1122,7 +1604,7 @@ const handlers={
  'discussion-home':async()=>{S.view='discussion';await goHome();},'home':goHome,'new-discussion':newDiscussion,'new-discussion-thread':newDiscussionThread,'discussion-backup':()=>exportBackup(doc()), 'new':b=>newNotebook(b.dataset.value), 'new-chooser':newChooser,'theme':themeDialog, 'import':()=>$('#file-input').click(),
  'new-folder':async()=>{const f=await ask('新建文件夹','文件夹名称','',{ok:'创建'});if(!f)return;if(S.folders.includes(f)){toast('这个文件夹已经存在');return;}S.folders.push(f);await store.setSetting('folders',S.folders);renderLibrary();},
  'guide':async()=>{let d=S.docs.find(x=>x.guide);if(!d){d=makeGuide();await store.save(d);S.docs.push(d);}await openDoc(d.id);},
- 'doc-menu':b=>showDocMenu(b.dataset.id),'rename':()=>renameDoc(),'settings':settings,'help':showHelp,
+ 'doc-menu':b=>showDocMenu(b.dataset.id),'rename':()=>renameDoc(),'settings':settings,'help':showHelp,'plugins':()=>pluginManager(),'plugin-tile':b=>{const i=b.dataset.id.indexOf(':'),t=P.tiles().find(x=>x.pluginId===b.dataset.id.slice(0,i)&&x.id===b.dataset.id.slice(i+1));return t?.run();},'plugin-newcard':b=>P.categories().find(x=>x.id===b.dataset.id)?.newCard?.run(),
  'tool':b=>{finishText();if(b.dataset.value==='comment'&&S.selection.size){const box=selectionBounds();startThreadAt({x:box.x+box.w+16,y:Math.max(12,box.y)},[...S.selection]);}S.tool=b.dataset.value;S.selection.clear();refreshTools();drawInk();},
  'color':b=>{if(S.tool==='marker')S.marker=b.dataset.value;else S.color=b.dataset.value;refreshTools();},
  'toggle-sidebar':b=>{setTimeout(alignGlobalBar,320);S.sidebar=!S.sidebar;$('.page-sidebar').classList.toggle('collapsed',!S.sidebar);$('.page-controls').classList.toggle('no-sidebar',!S.sidebar);b.classList.toggle('on',S.sidebar);b.setAttribute('aria-pressed',S.sidebar);if(page()?.infinite)requestAnimationFrame(()=>paintInfinite(false));},
@@ -1135,6 +1617,7 @@ const handlers={
 app.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(b&&!b.disabled){e.stopPropagation();run(()=>handlers[b.dataset.action]?.(b));}});
 app.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches('[role=button][data-action]:not(button)')){e.preventDefault();const b=e.target;run(()=>handlers[b.dataset.action]?.(b));}});
 $('#file-input').onchange=e=>run(()=>importFiles([...e.target.files]));
+$('#plugin-input').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)run(()=>installPluginFile(f));};
 $('#merge-input').onchange=e=>{const files=[...e.target.files];e.target.value='';run(()=>mergeImport(files.map(f=>({name:f.name,blob:async()=>f})),{explicit:true}));};
 $('#comment-image-input').onchange=e=>run(()=>addCommentImages([...e.target.files]));
 let dragDepth=0;
@@ -1198,6 +1681,7 @@ async function initEmbedded(){
  document.body.classList.add('embedded');try{if(window.parent.desktop)document.body.classList.add('caption-space');}catch{}
  try{S.docs=await store.all();S.folders=await store.setting('folders')||S.folders;S.penOnly=await store.setting('penOnly')||false;await loadToolSettings();useTheme(await store.setting('theme')||DEFAULT_THEME,false);
   window.__inknoteEmbed={docId:EMBED_DOC,flush:async()=>{finishText();await flush();},theme:t=>useTheme(t,false),applyTools:st=>applyTools(st),globalTools:on=>document.body.classList.toggle('global-tools',!!on)};
+  await loadPlugins();
   if(!S.docs.some(d=>d.id===EMBED_DOC))throw new Error('这本笔记已不存在。');
   try{const h=host(),st=h?.toolState?.();if(st)applyTools(st);document.body.classList.toggle('global-tools',!!h?.hasToolbar?.());}catch{}
   await openDoc(EMBED_DOC);await fitIfOverflow();
@@ -1207,16 +1691,17 @@ async function init(){
  S.theme=applyTheme(DEFAULT_THEME,themeChanged).theme;themeChanged();
  try{new ResizeObserver(()=>document.body.classList.toggle('narrow-editor',view.clientWidth-(document.body.classList.contains('caption-space')?150:0)<=700)).observe(view);}catch{}
  if(EMBED)return initEmbedded();
- window.__inknoteHost={toolsChanged:st=>applyTools(st),toolState:()=>toolState(),hasToolbar:()=>!!document.querySelector('.toolbar.global'),download:(bytes,name,mime)=>download(bytes,name,mime),closeSplit:()=>run(closeSplit),swapSplit:()=>run(swapSplit),docSaved:id=>run(()=>reloadDoc(id)),toast:(m,e)=>toast(m,e)};
+ window.__inknoteHost={toolsChanged:st=>applyTools(st),toolState:()=>toolState(),hasToolbar:()=>!!document.querySelector('.toolbar.global'),download:(bytes,name,mime)=>download(bytes,name,mime),closeSplit:()=>run(closeSplit),swapSplit:()=>run(swapSplit),docSaved:id=>{scheduleSync('save',3000);return run(()=>reloadDoc(id));},toast:(m,e)=>toast(m,e)};
  view.innerHTML='<div class="boot"><img class="brand-logo boot-logo" src="icon.svg" alt="" aria-hidden="true"><p>正在打开墨页…</p></div>';
  try{S.docs=await store.all();S.folders=await store.setting('folders')||S.folders;S.penOnly=await store.setting('penOnly')||false;await loadToolSettings();useTheme(await store.setting('theme')||DEFAULT_THEME,false);
+  await loadPlugins();
   if(!await store.setting('initialized')){const guide=makeGuide(),learning={id:uid(),title:'每周学习计划',kind:'notebook',color:'sand',folder:'学习',createdAt:Date.now(),updatedAt:Date.now()-300000,lastPage:0,pages:[makeCanvasPage('ruled',false,'plain',{title:'每周学习计划'}),makeCanvasPage('ruled',false,'plain')]},ideas={id:uid(),title:'灵感与随记',kind:'notebook',color:'blue',folder:'个人',createdAt:Date.now(),updatedAt:Date.now()-3600000,lastPage:0,pages:[makeCanvasPage('dot',false,'plain',{title:'灵感与随记'})]};
     learning.pages[0].annotations=[{id:uid(),type:'text',x:52,y:106,size:14,w:400,h:140,color:'#5f5a68',text:'这一周，给自己一点专注的时间。\n\n周一 / 阅读并整理一份课件\n\n周三 / 写下三个值得追问的问题\n\n周五 / 回顾本周的收获与想法'}];
     ideas.pages[0].annotations=[{id:uid(),type:'text',x:44,y:104,size:24,w:400,h:36,color:'#4f6b76',text:'好想法，值得被记住。'},{id:uid(),type:'text',x:46,y:150,size:13,w:400,h:40,color:'#7c8d92',text:'给突然出现的灵感，留一个位置。'}];
     for(const d of [guide,learning,ideas]){d.sample=d.updatedAt;await store.save(d);S.docs.push(d);}await store.setSetting('initialized',true);
   }
   renderLibrary();
-  if(window.desktop){document.body.classList.add('desktop');$('#windowbar').hidden=false;document.querySelectorAll('[data-window]').forEach(b=>b.onclick=()=>window.desktop.windowAction(b.dataset.window));window.desktop.onBeforeClose(async()=>{try{finishText();await flush();if(S.split)await closeSplit({reload:false});closing=true;window.desktop.closeReady(true);}catch(e){failure(e);window.desktop.closeReady(false);}});}
+  if(window.desktop){document.body.classList.add('desktop');$('#windowbar').hidden=false;document.querySelectorAll('[data-window]').forEach(b=>b.onclick=()=>window.desktop.windowAction(b.dataset.window));startLibrarySync();window.desktop.onBeforeClose(async()=>{try{finishText();await flush();if(S.split)await closeSplit({reload:false});closing=true;window.desktop.closeReady(true);}catch(e){failure(e);window.desktop.closeReady(false);}});}
  }catch(e){window.desktop?.reportStartupError(e?.message||String(e));view.innerHTML=`<div class="boot boot-error"><img class="brand-logo boot-logo" src="icon.svg" alt="" aria-hidden="true"><h3>暂时无法打开本机笔记</h3><p>${E(e.message)}</p><p>请关闭后重新打开墨页。如仍无法启动，请保留错误信息和笔记数据。</p></div>`;failure(e);}
 }
 run(init);
