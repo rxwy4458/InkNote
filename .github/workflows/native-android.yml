@@ -45,7 +45,11 @@ jobs:
           profile: pixel_tablet
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: cd mobile/native-android && ../android/gradlew --no-daemon connectedDebugAndroidTest
+          script: |
+            cd mobile/native-android && ../android/gradlew --no-daemon connectedDebugAndroidTest
+            mkdir -p native-dist
+            adb pull /sdcard/Android/data/com.inknote.nativepreview/files/native-library.png native-dist/
+            adb pull /sdcard/Android/data/com.inknote.nativepreview/files/native-editor.png native-dist/
       - name: Collect installable APK and test evidence
         if: always()
         run: |
@@ -57,8 +61,6 @@ jobs:
             "$APK_SIGNER" verify --verbose native-dist/*.apk > native-dist/signature.txt
             unzip -l native-dist/*.apk > native-dist/apk-contents.txt
           fi
-          adb pull /sdcard/Android/data/com.inknote.nativepreview/files/native-library.png native-dist/ || true
-          adb pull /sdcard/Android/data/com.inknote.nativepreview/files/native-editor.png native-dist/ || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -159,19 +159,23 @@ class NotebookStore(val root: File) {
 
     fun exportPdf(note: Notebook, output: OutputStream) {
         val renderer = CanvasStrokeRenderer.create()
-        PdfDocument().use { document ->
+        val document = PdfDocument()
+        try {
             note.pages.forEachIndexed { index, page ->
                 val pdfPage = document.startPage(PdfDocument.PageInfo.Builder(page.width.toInt().coerceAtLeast(1), page.height.toInt().coerceAtLeast(1), index + 1).create())
-                paintPaper(pdfPage.canvas, page)
-                pdfBitmap(note, page)?.let { bitmap ->
-                    pdfPage.canvas.drawBitmap(bitmap, null, android.graphics.RectF(0f, 0f, page.width, page.height), Paint(Paint.FILTER_BITMAP_FLAG))
-                    bitmap.recycle()
+                try {
+                    paintPaper(pdfPage.canvas, page)
+                    pdfBitmap(note, page)?.let { bitmap ->
+                        pdfPage.canvas.drawBitmap(bitmap, null, android.graphics.RectF(0f, 0f, page.width, page.height), Paint(Paint.FILTER_BITMAP_FLAG))
+                        bitmap.recycle()
+                    }
+                    page.strokes.forEach { renderer.draw(pdfPage.canvas, it.stroke, Matrix()) }
+                } finally {
+                    document.finishPage(pdfPage)
                 }
-                page.strokes.forEach { renderer.draw(pdfPage.canvas, it.stroke, Matrix()) }
-                document.finishPage(pdfPage)
             }
             document.writeTo(output)
-        }
+        } finally { document.close() }
     }
 
     private fun copyBounded(input: InputStream, output: OutputStream, max: Long): Long {

@@ -35,6 +35,8 @@ dependencies {
     implementation("androidx.ink:ink-brush:1.0.0")
     implementation("androidx.ink:ink-rendering:1.0.0")
     implementation("androidx.ink:ink-storage:1.0.0")
+    implementation("androidx.ink:ink-strokes:1.0.0")
+    implementation("androidx.ink:ink-geometry:1.0.0")
     implementation("androidx.input:input-motionprediction:1.0.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test:rules:1.7.0")

@@ -95,10 +95,11 @@ class InkSurface(context: Context) : FrameLayout(context) {
         contentDescription = "原生书写画布"
         ink.addFinishedStrokesListener(object : InProgressStrokesFinishedListener {
             override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
-                val added = strokes.mapNotNull { (id, stroke) -> pending.remove(id)?.let { InkRecord(kind = it, stroke = stroke) } }
+                val added = pending.keys.filter { it in strokes }.map { id ->
+                    InkRecord(kind = requireNotNull(pending.remove(id)), stroke = requireNotNull(strokes[id]))
+                }
                 if (added.isNotEmpty()) {
-                    history.record(committed)
-                    committed = committed + added
+                    added.forEach { record -> history.record(committed); committed = committed + record }
                     content.invalidate()
                     onChange(committed)
                     onReport("已保存 ${committed.size} 笔 · 最近一笔 ${added.last().stroke.inputs.size} 个真实采样点")
@@ -159,10 +160,15 @@ class InkSurface(context: Context) : FrameLayout(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_CANCEL || event.flags and MotionEvent.FLAG_CANCELED != 0) {
+        if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
             predictor.record(event); cancelInput(event); return true
         }
         val actionIndex = event.actionIndex
+        if (event.flags and MotionEvent.FLAG_CANCELED != 0) {
+            predictor.record(event)
+            if (event.getPointerId(actionIndex) == activePointer) cancelInput(event)
+            return true
+        }
         val actionType = event.getToolType(actionIndex)
         val stylusAction = actionType == MotionEvent.TOOL_TYPE_STYLUS || actionType == MotionEvent.TOOL_TYPE_ERASER
         if (stylusAction) lastPen = SystemClock.uptimeMillis()
@@ -196,6 +202,7 @@ class InkSurface(context: Context) : FrameLayout(context) {
             // Fingers and palms never cancel an active stylus stroke merely by touching the page.
             return true
         }
+        if (tool == Tool.HAND) { pan(event); return true }
         if ((event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) && stylusAction) {
             panning = false; beginInk(event, actionIndex, actionType); return true
         }
