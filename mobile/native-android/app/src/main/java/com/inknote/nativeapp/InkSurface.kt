@@ -10,7 +10,6 @@ import android.widget.FrameLayout
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.authoring.InProgressStrokesView
-import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import androidx.ink.strokes.Stroke
 import androidx.ink.strokes.StrokeInput
 import androidx.input.motionprediction.MotionEventPredictor
@@ -32,8 +31,9 @@ class InkSurface(context: Context) : FrameLayout(context) {
     private val identity = Matrix()
     private val worldToView = Matrix()
     private val viewToWorld = Matrix()
-    private val renderer = CanvasStrokeRenderer.create()
-    private val nodes = LinkedHashMap<String, RenderNode>()
+    private val raster = HistoryRaster()
+    private var historyTiles: List<HistoryTile> = emptyList()
+    private val waitingForHandoff = linkedSetOf<InProgressStrokeId>()
     private val content = object : View(context) {
         override fun onDraw(canvas: Canvas) {
             canvas.drawColor(0xffeee9f2.toInt())
@@ -42,21 +42,7 @@ class InkSurface(context: Context) : FrameLayout(context) {
             canvas.clipRect(0f, 0f, page.width, page.height)
             paintPaper(canvas, page)
             paperBitmap?.let { canvas.drawBitmap(it, null, RectF(0f, 0f, page.width, page.height), bitmapPaint) }
-            committed.forEach { record ->
-                if (canvas.isHardwareAccelerated) {
-                    val node = nodes.getOrPut(record.id) {
-                        RenderNode("stroke-${record.id}").apply {
-                            setPosition(0, 0, ceil(page.width).toInt(), ceil(page.height).toInt())
-                            setClipToBounds(false)
-                            val recording = beginRecording()
-                            try { renderer.draw(recording, record.stroke, identity) } finally { endRecording() }
-                        }
-                    }
-                    canvas.drawRenderNode(node)
-                } else {
-                    renderer.draw(canvas, record.stroke, worldToView)
-                }
-            }
+            historyTiles.forEach { tile -> canvas.drawBitmap(tile.bitmap, null, tile.bounds, bitmapPaint) }
             canvas.restoreToCount(save)
         }
     }
@@ -100,27 +86,28 @@ class InkSurface(context: Context) : FrameLayout(context) {
                 }
                 if (added.isNotEmpty()) {
                     added.forEach { record -> history.record(committed); committed = committed + record }
-                    content.invalidate()
+                    waitingForHandoff.addAll(strokes.keys)
+                    rebuildHistory()
                     onChange(committed)
                     onReport("当前 ${committed.size} 笔 · 最近一笔 ${added.last().stroke.inputs.size} 个真实采样点")
                 }
-                // Same UI turn as invalidation: Ink coordinates the front-buffer handoff.
-                ink.removeFinishedStrokes(strokes.keys)
+                if (added.isEmpty()) ink.removeFinishedStrokes(strokes.keys)
             }
         })
         ink.eagerInit()
     }
 
-    val hasPendingInput get() = activeId != null || pending.isNotEmpty() || erasing
+    val hasPendingInput get() = activeId != null || pending.isNotEmpty() || waitingForHandoff.isNotEmpty() || erasing
     val strokeCount get() = committed.size
 
     fun showPage(value: NotePage) {
         if (value.id == page.id && value.strokes == committed && value.paper == page.paper) return
         if (value.id != page.id) {
-            cancelInput(); history.clear(); clearNodes(); paperBitmap = null; fitted = false
+            cancelInput(); history.clear(); historyTiles = emptyList(); paperBitmap = null; fitted = false
+            if (waitingForHandoff.isNotEmpty()) { ink.removeFinishedStrokes(waitingForHandoff.toSet()); waitingForHandoff.clear() }
         }
         page = value; committed = value.strokes
-        nodes.keys.filter { id -> committed.none { it.id == id } }.forEach { nodes.remove(it)?.discardDisplayList() }
+        rebuildHistory()
         if (!fitted && width > 0 && height > 0) fitPage() else content.invalidate()
     }
 
@@ -130,9 +117,7 @@ class InkSurface(context: Context) : FrameLayout(context) {
     fun clearPage() { if (!hasPendingInput && committed.isNotEmpty()) { history.record(committed); replaceStrokes(emptyList()) } }
     private fun replaceStrokes(value: List<InkRecord>) {
         committed = value
-        val keep = value.map { it.id }.toSet()
-        nodes.keys.filter { it !in keep }.forEach { nodes.remove(it)?.discardDisplayList() }
-        content.invalidate(); onChange(value)
+        rebuildHistory(); onChange(value)
     }
     fun fitPage() {
         if (hasPendingInput || width == 0 || height == 0) return
@@ -152,7 +137,7 @@ class InkSurface(context: Context) : FrameLayout(context) {
         ink.maskPath = Path().apply { addRect(paperBounds, Path.Direction.CW) }
         content.invalidate()
     }
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) { super.onSizeChanged(w, h, oldw, oldh); fitPage() }
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) { super.onSizeChanged(w, h, oldw, oldh); fitted = false; fitPage() }
     override fun onInterceptTouchEvent(event: MotionEvent) = true
     override fun onHoverEvent(event: MotionEvent): Boolean {
         if (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) lastPen = SystemClock.uptimeMillis()
@@ -232,7 +217,7 @@ class InkSurface(context: Context) : FrameLayout(context) {
     private fun cancelInput(event: MotionEvent? = null) {
         activeId?.let { ink.cancelStroke(it, event); pending.remove(it) }
         activeId = null; activePointer = -1
-        if (erasing) eraseBefore?.let { committed = it; content.invalidate() }
+        if (erasing) eraseBefore?.let { committed = it; rebuildHistory() }
         erasing = false; eraseBefore = null; erasePoint = null; panning = false
     }
     private fun focus(event: MotionEvent): PointF {
@@ -264,12 +249,22 @@ class InkSurface(context: Context) : FrameLayout(context) {
         val to = worldPoint(event, index); val from = erasePoint ?: to
         val radius = 14f / (baseScale() * zoom)
         val next = committed.filterNot { intersectsStroke(it, from, to, radius) }
-        if (next.size != committed.size) { committed = next; content.invalidate() }
+        if (next.size != committed.size) { committed = next; rebuildHistory() }
         erasePoint = to
     }
     override fun performClick(): Boolean { super.performClick(); return true }
-    private fun clearNodes() { nodes.values.forEach { it.discardDisplayList() }; nodes.clear() }
-    override fun onDetachedFromWindow() { cancelInput(); clearNodes(); super.onDetachedFromWindow() }
+    private fun rebuildHistory() {
+        raster.request(page, committed) { tiles ->
+            historyTiles = tiles
+            content.invalidate()
+            if (waitingForHandoff.isNotEmpty()) {
+                ink.removeFinishedStrokes(waitingForHandoff.toSet())
+                waitingForHandoff.clear()
+            }
+            if (!fitted) fitPage()
+        }
+    }
+    override fun onDetachedFromWindow() { cancelInput(); raster.close(); super.onDetachedFromWindow() }
 }
 
 /** Eraser tests the swept segment, including fast eraser moves between delivered samples. */

@@ -56,7 +56,20 @@ class NativeInkTest {
             intArrayOf(7), types, floatArrayOf(x + i * 8), floatArrayOf(y + i * 4), floatArrayOf(.2f + i * .15f))
         if (cancel) assertFalse("Cancelled stroke must never be committed", latch.await(800, TimeUnit.MILLISECONDS))
         else assertTrue("Stroke handoff did not complete", latch.await(20, TimeUnit.SECONDS))
+        awaitHandoff(view)
         return result
+    }
+
+    private fun awaitHandoff(view: InkSurface) {
+        val deadline = SystemClock.uptimeMillis() + 20000
+        while (true) {
+            var pending = false
+            activity.scenario.onActivity { pending = view.hasPendingInput }
+            if (!pending) break
+            assertTrue("Finished ink was not handed to the history layer", SystemClock.uptimeMillis() < deadline)
+            SystemClock.sleep(16)
+        }
+        instrumentation.waitForIdleSync()
     }
 
     @Test fun stylusPressureSurvivesPersistenceAndPredictionIsNotSaved() {
@@ -93,7 +106,7 @@ class NativeInkTest {
         send(view, t, t + 16, MotionEvent.ACTION_MOVE, intArrayOf(7, 23), intArrayOf(pen, finger), floatArrayOf(x + 16, x + 100), floatArrayOf(y + 8, y), floatArrayOf(.6f, .7f))
         send(view, t, t + 24, MotionEvent.ACTION_POINTER_UP or (1 shl 8), intArrayOf(7, 23), intArrayOf(pen, finger), floatArrayOf(x + 16, x + 100), floatArrayOf(y + 8, y), floatArrayOf(.6f, .7f), MotionEvent.FLAG_CANCELED)
         send(view, t, t + 32, MotionEvent.ACTION_UP, intArrayOf(7), intArrayOf(pen), floatArrayOf(x + 32), floatArrayOf(y + 16), floatArrayOf(.8f))
-        assertTrue(latch.await(20, TimeUnit.SECONDS)); assertEquals(1, result.size)
+        assertTrue(latch.await(20, TimeUnit.SECONDS)); awaitHandoff(view); assertEquals(1, result.size)
         assertEquals(InputToolType.STYLUS, result.single().stroke.inputs.getToolType())
     }
 

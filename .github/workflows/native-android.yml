@@ -46,11 +46,7 @@ jobs:
           profile: pixel_tablet
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: |
-            cd mobile/native-android && ../android/gradlew --no-daemon connectedDebugAndroidTest
-            mkdir -p native-dist
-            adb pull /sdcard/Android/data/com.inknote.nativepreview/files/native-library.png native-dist/
-            adb pull /sdcard/Android/data/com.inknote.nativepreview/files/native-editor.png native-dist/
+          script: bash mobile/native-android/test-on-emulator.sh
       - name: Collect installable APK and test evidence
         if: always()
         run: |
