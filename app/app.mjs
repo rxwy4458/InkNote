@@ -14,6 +14,7 @@ import {readPdf,documentPdf,cachePdf,releasePdfs,renderBackground,exportPdf,pdfT
 import {PRESETS,VARIANTS,MODES,DEFAULT_THEME,applyTheme,currentTheme,swatch} from './theme.mjs';
 import * as P from './plugin-host.mjs';
 import {setPageDecorator} from './paper.mjs';
+import * as Native from './native.mjs';
 export const APP_VERSION='0.7.0';
 
 const $=s=>document.querySelector(s);
@@ -22,6 +23,8 @@ const app=$('#app'),view=$('#view'),modal=$('#modal'),modalForm=$('#modal-form')
 // Each side edits and saves its own note; the same note is never open on both sides.
 const params=new URLSearchParams(location.search),EMBED=params.get('pane')==='split'&&window.parent!==window,EMBED_DOC=EMBED?params.get('doc'):null;
 const host=()=>EMBED?window.parent.__inknoteHost:null;
+// Android app (Capacitor): touch gestures, the back button, saving exports to the phone. Never true on the desktop.
+const NATIVE=Native.NATIVE&&!EMBED;
 const S={accent:{primary:'#65558f',tertiary:'#7e5260'},theme:null,toolbarDock:'bottom',scrollMode:'continuous',eraserMode:'stroke',eraserSize:18,clipboard:null,editingText:null,split:null,splitRatio:.5,docs:[],folders:['学习','工作','个人'],view:'all',query:'',sort:'updated',list:false,active:null,tabs:[],page:0,tool:'pen',color:COLORS[0],marker:MARKERS[0],width:2.3,markerWidth:16,textSize:17,penOnly:false,zoom:1,sidebar:true,selection:new Set(),pdf:null,renderEpoch:0,find:[],findIndex:0,findQuery:'',findOpen:false,commentsOpen:false,commentDraft:null,activeThread:null,collapsedThreads:new Set()};
 const history=new Map(),pending=new Map();let saveTimer,saveChain=Promise.resolve(),saving=0,saveError=false,gesture=null,textarea=null,importing=false,closing=false,thumbObserver,navigation=0,viewportObserver,viewportFrame;
 const doc=()=>S.docs.find(d=>d.id===S.active);
@@ -95,18 +98,19 @@ function renderLibrary(){
  const date=new Date().toLocaleDateString('zh-CN',{month:'long',day:'numeric',weekday:'long'});
  const newCard=!S.query?newCardFor(S.view):'';
  const empty=!filtered.length?(S.query?`<div class="empty-state"><span class="empty-art cookie">${icon('search')}</span><h3>没有找到“${E(S.query)}”</h3><p>已搜索笔记标题、页面标题、文字、批注和帖子内容。PDF 原文请打开后按 Ctrl F 查找。</p></div>`:emptyFor(S.view)):'';
- view.innerHTML=`<aside class="nav-drawer">
+ if(NATIVE)app.classList.remove('nav-open');
+ view.innerHTML=`${NATIVE?'<div class="nav-scrim" data-action="nav-close"></div>':''}<aside class="nav-drawer">
  <div class="sidebar-brand drag"><img class="brand-logo" src="icon.svg" alt="" aria-hidden="true"><span class="brand-name">墨页</span></div>
  <div class="sidebar-new"><button class="fab extended" data-action="new-chooser" title="新建画布、帖子或导入文件">${icon('edit')}<span>新建</span></button></div>
  <nav class="side-nav" aria-label="笔记分类">${NAV_MAIN.map(navItem).join('')}
   ${navKinds().length?`<div class="side-label">分类</div>${navKinds().map(navItem).join('')}`:''}
   <div class="side-label">文件夹<button class="icon-btn tiny" data-action="new-folder" title="新建文件夹" aria-label="新建文件夹">${icon('plus')}</button></div>
   ${S.folders.map((f,i)=>`<button class="nav-item ${S.view==='folder:'+f?'active':''}" data-action="view" data-value="folder:${E(f)}"><span class="nav-indicator folder-${i%4}">${icon('folder')}</span><span class="nav-label">${E(f)}</span><span class="nav-count">${S.docs.filter(d=>d.folder===f).length||''}</span></button>`).join('')}
- </nav>
+ </nav>${NATIVE?`<div class="drawer-extra"><button class="nav-item" data-action="theme"><span class="nav-indicator">${icon('palette')}</span><span class="nav-label">配色与外观</span></button><button class="nav-item" data-action="settings"><span class="nav-indicator">${icon('gear')}</span><span class="nav-label">设置</span></button><button class="nav-item" data-action="help"><span class="nav-indicator">${icon('help')}</span><span class="nav-label">使用帮助</span></button></div>`:''}
  <div class="sidebar-foot" title="笔记保存在这台电脑的应用数据中；设置笔记库文件夹后，还会以普通文件放一份在那里"><div class="storage-label">${icon('storage')}<span>本机存储</span></div><div class="storage-bar"><span id="storage-bar"></span></div><small id="storage-text">笔记只保存在这台电脑</small><button type="button" class="exchange-status" id="exchange-status" data-action="exchange"><span class="exchange-icon">${icon('folder')}</span><span class="exchange-text">笔记库文件夹</span></button></div>
 </aside>
 <main class="library">
- <header class="library-top drag"><label class="search-bar">${icon('search')}<input id="library-search" type="search" placeholder="搜索笔记标题和内容" aria-label="搜索笔记标题和内容" value="${E(S.query)}" autocomplete="off"><kbd>Ctrl K</kbd></label><span class="spacer"></span><button class="icon-btn" data-action="theme" title="配色与外观" aria-label="配色与外观">${icon('palette')}</button><button class="icon-btn" data-action="import" title="导入 PDF、电子书或 .inknote 备份" aria-label="导入">${icon('upload')}</button><button class="icon-btn" data-action="help" title="快捷键与帮助" aria-label="帮助">${icon('help')}</button><button class="icon-btn" data-action="settings" title="设置" aria-label="设置">${icon('gear')}</button></header>
+ <header class="library-top drag">${NATIVE?`<button class="icon-btn phone-only" data-action="nav-open" title="菜单" aria-label="打开菜单">${icon('menu')}</button>`:''}<label class="search-bar">${icon('search')}<input id="library-search" type="search" placeholder="搜索笔记标题和内容" aria-label="搜索笔记标题和内容" value="${E(S.query)}" autocomplete="off"><kbd>Ctrl K</kbd></label><span class="spacer"></span><button class="icon-btn" data-action="theme" title="配色与外观" aria-label="配色与外观">${icon('palette')}</button><button class="icon-btn" data-action="import" title="导入 PDF、电子书或 .inknote 备份" aria-label="导入">${icon('upload')}</button><button class="icon-btn" data-action="help" title="快捷键与帮助" aria-label="帮助">${icon('help')}</button><button class="icon-btn" data-action="settings" title="设置" aria-label="设置">${icon('gear')}</button></header>
  <div class="library-scroll"><div class="library-content">
   <div class="page-heading">${home?`<p class="heading-kicker">${E(date)}</p><h1 class="display">${greeting()}</h1>`:`<h1 class="headline">${E(S.query?'搜索结果':title)}</h1>`}</div>
   ${home?createTiles():''}
@@ -116,7 +120,8 @@ function renderLibrary(){
   </div>
   <div class="documents-grid ${S.list?'list-mode':''}" id="documents">${newCard}${filtered.map(d=>card(d,matches.get(d.id))).join('')}${empty}</div>
  </div></div>
-</main>`;
+</main>${NATIVE?`<button class="fab phone-fab" data-action="new-chooser" title="新建" aria-label="新建画布、帖子或导入文件">${icon('edit')}</button>`:''}`;
+ if(NATIVE)view.querySelector('.nav-drawer').addEventListener('click',e=>{if(e.target.closest('[data-action]'))app.classList.remove('nav-open');});
  $('#library-search').addEventListener('input',e=>{const p=e.target.selectionStart;S.query=e.target.value;renderLibrary();const input=$('#library-search');input.focus();try{input.setSelectionRange(p,p);}catch{}});
  $('#sort-select').onchange=e=>{S.sort=e.target.value;renderLibrary();};refreshExchangeBadge();
  run(refreshStorage);
@@ -177,7 +182,7 @@ function useTheme(next,persist=true){
  return r;
 }
 function themeChanged(r=currentTheme()){
- if(!r)return;setPaperAccent(r.paper);S.accent=r.paper;
+ if(!r)return;setPaperAccent(r.paper);S.accent=r.paper;if(NATIVE)Native.setBarsDark(r.dark);
  if(S.active&&doc()?.kind!=='discussion'&&$('#workspace'))run(async()=>{await showPage({resetScroll:false});await renderThumbnails();});
 }
 function themeDialog(){
@@ -212,7 +217,7 @@ async function openDoc(id){
  if(!S.tabs.includes(id))S.tabs.push(id);S.pdf=null;
  if(d.kind==='discussion'){ensureDiscussionFloors(page());S.discussionQuery='';S.commentDraft=discussionDraft(page());renderDiscussion();d.lastOpened=Date.now();save(false);await releasePdfs(id);return;}
  S.commentsOpen=S.panelPref||false;renderEditor();
- try{const pdf=await documentPdf(d,passwordPrompt);if(S.active!==id||ticket!==navigation)return;S.pdf=pdf;await releasePdfs(id);if(ticket!==navigation)return;await showPage();await renderThumbnails();}
+ try{const pdf=await documentPdf(d,passwordPrompt);if(S.active!==id||ticket!==navigation)return;S.pdf=pdf;await releasePdfs(id);if(ticket!==navigation)return;if(NATIVE)nativeFitZoom();await showPage();await renderThumbnails();}
  catch(e){if(S.active===id&&ticket===navigation){failure(e);await goHome();}return;}
  if(switching){d.lastOpened=Date.now();save(false);}
 }
@@ -255,6 +260,7 @@ function renderEditor(){
  viewportObserver?.disconnect();viewportObserver=new ResizeObserver(()=>{if(page()?.infinite&&!gesture)paintInfinite(false);});viewportObserver.observe($('#workspace'));
  $('#workspace').addEventListener('wheel',e=>{if(e.ctrlKey){e.preventDefault();run(()=>changeZoom(e.deltaY>0?-.1:.1));return;}flipOnWheel(e);},{passive:false});
  const ext=P.pageExtension(d);if(ext?.mount){try{ext.mount();mountedExt=ext;}catch(e){console.error('plugin mount',e);}}
+ if(NATIVE)touchSetup();
 }
 function refreshTitle(){
  if(!S.active)return;const title=$('.editor-title');if(title)title.textContent=doc().title;
@@ -274,7 +280,7 @@ function refreshTools(){
  const hints={pen:'画笔 · 自由书写，触控笔支持压感',marker:'荧光笔 · 半透明标记',eraser:S.eraserMode==='partial'?'局部擦除 · 只擦掉经过的部分，再按 E 切换为整笔擦除':'整笔擦除 · 碰到就删除整条笔迹，再按 E 切换为局部擦除',text:'文字 · 点击空白处新建文本框，点已有文字直接修改；可粘贴或拖入带格式的内容、Markdown 和公式，Esc 完成',rect:'矩形 · 拖动绘制方框',lasso:'套索 · 框选后拖动，Ctrl C 复制，Delete 删除，双击文字编辑',hand:'浏览 · 拖动平移页面',comment:'批注 · 点击页面固定位置，或先框选笔迹'};
  $('#tool-hint').textContent=hints[S.tool];syncTools();const ink=$('#ink-canvas');ink.dataset.tool=S.tool;ink.dataset.eraser=S.eraserMode;ink.style.cursor=eraser?eraserCursor():'';updateTouch();refreshSelectionBar();
 }
-function updateTouch(){const c=$('#ink-canvas');if(c)c.style.touchAction=S.penOnly||S.tool==='hand'?'pan-x pan-y':'none';}
+function updateTouch(){const c=$('#ink-canvas');if(c)c.style.touchAction=NATIVE?'none':S.penOnly||S.tool==='hand'?'pan-x pan-y':'none';}
 function renderThumbList(){
  const d=doc();if(!d||!$('#page-thumbs'))return;
  const bookmarked=$('#thumb-filter')?.value==='bookmark';
@@ -356,6 +362,195 @@ function pointerUp(e){if(!gesture||gesture.pointer!==e.pointerId)return;const g=
  if(g.mode==='draw'){const a=g.annotation;if(a.type!=='rect'||Math.abs(a.w)>2&&Math.abs(a.h)>2){page().annotations.push(a);g.changed=true;}}
  if(g.mode==='select'){const b=selectionRect(g.start,g.last);if(b.w<4&&b.h<4){const found=page().annotations.findLast(a=>hitAnnotation(a,g.last,7/S.zoom));if(found)S.selection.add(found.id);}else page().annotations.filter(a=>intersects(bounds(a),b)).forEach(a=>S.selection.add(a.id));}
  gesture=null;if(g.changed){if(page().infinite){const e=contentExtent(page());growExtent(page(),e.width,e.height);}remember(g.before);}if(page().infinite)paintInfinite(false);else drawInk();const c=$('#ink-canvas');if(c?.hasPointerCapture(e.pointerId))c.releasePointerCapture(e.pointerId);if(g.mode==='pan')requestAnimationFrame(checkActivePage);
+}
+// ---------- Android: fingers and pen on the page ----------
+// One finger writes with the current tool, or scrolls (with inertia) when 「仅用笔书写」 is on, with the hand tool
+// and outside the page. Two fingers scroll and pinch-zoom; a quick two-finger tap undoes. The pen always writes, and
+// fingers that land while the pen is on or near the screen are the palm, so they are ignored.
+// Text and comment tools act when the finger (or pen) lifts, so a tap can still turn into a scroll or a pinch, and the
+// keyboard is allowed to open. Desktop and browser builds never run any of this (NATIVE is false there).
+const T={pts:new Map(),mode:null,pan:null,pinch:null,fling:0,pen:0,tap:null,replay:null,penTap:null,penAuto:true};
+const PASS='.rich-box.editing,.rich-toolbar,.rich-colors,textarea,input,select,button,a,[contenteditable=true]';
+function touchSetup(){
+ const ws=$('#workspace');if(!ws)return;stopFling();resetTouch();T.pts.clear();
+ ws.addEventListener('pointerdown',touchDown,true);ws.addEventListener('pointermove',touchMove,true);
+ ws.addEventListener('pointerup',touchUp,true);ws.addEventListener('pointercancel',touchUp,true);
+ ws.addEventListener('contextmenu',e=>e.preventDefault());
+}
+function resetTouch(){T.mode=null;T.pan=null;T.pinch=null;T.tap=null;T.replay=null;}
+function capture(id){try{$('#workspace').setPointerCapture(id);}catch{}}
+const tapTool=()=>S.tool==='text'||S.tool==='comment';
+function touchDown(e){
+ const now=performance.now();
+ if(e.pointerType==='pen'){
+  T.pen=now;stopFling();if(T.pts.size)dropTouches();
+  if(tapTool()&&e.button===0&&!gesture&&!textarea&&e.target.closest?.('#ink-canvas,.page-ghost:not(.ghost-infinite)')){T.penTap={pointerId:e.pointerId,clientX:e.clientX,clientY:e.clientY,ghost:e.target.closest('.page-ghost'),pointerType:'pen'};capture(e.pointerId);e.stopPropagation();e.preventDefault();}
+  return;
+ }
+ if(e.pointerType!=='touch'||!page())return;
+ stopFling();
+ if(now-T.pen<600){e.stopPropagation();e.preventDefault();return;}
+ if(!T.pts.size&&e.target.closest?.(PASS))return;
+ if(T.pts.size>=2){e.stopPropagation();e.preventDefault();return;}
+ T.pts.set(e.pointerId,{x:e.clientX,y:e.clientY,x0:e.clientX,y0:e.clientY});
+ if(T.pts.size===1){
+  T.tap={t:now,moved:false,fingers:1,x:e.clientX,y:e.clientY,ghost:e.target.closest?.('.page-ghost.ghost-infinite')};
+  const onPage=e.target.closest?.('#ink-canvas,.page-ghost:not(.ghost-infinite)'),writes=onPage&&!S.penOnly&&S.tool!=='hand';
+  if(writes&&tapTool()){T.mode='tap';T.replay={pointerId:e.pointerId,clientX:e.clientX,clientY:e.clientY,ghost:e.target.closest('.page-ghost'),pointerType:'touch'};capture(e.pointerId);e.stopPropagation();e.preventDefault();return;}
+  if(writes){T.mode='ink';return;}
+  T.mode='pan';startPan(e.pointerId,e.clientX,e.clientY);e.stopPropagation();e.preventDefault();return;
+ }
+ e.stopPropagation();e.preventDefault();
+ if(T.pts.size===2){T.tap.fingers=2;T.replay=null;cancelInk();endPan(false);startPinch();}
+}
+function touchMove(e){
+ if(e.pointerType==='pen'){T.pen=performance.now();if(T.penTap&&e.pointerId===T.penTap.pointerId){e.stopPropagation();if(Math.hypot(e.clientX-T.penTap.clientX,e.clientY-T.penTap.clientY)>12)T.penTap.moved=true;}return;}
+ const pt=T.pts.get(e.pointerId);if(e.pointerType!=='touch'||!pt)return;
+ pt.x=e.clientX;pt.y=e.clientY;
+ if(T.tap&&!T.tap.moved&&Math.hypot(pt.x-pt.x0,pt.y-pt.y0)>10)T.tap.moved=true;
+ if(T.mode==='ink')return;
+ e.stopPropagation();e.preventDefault();
+ if(T.mode==='tap'&&T.tap?.moved){T.mode='pan';T.replay=null;startPan(e.pointerId,pt.x0,pt.y0);}
+ if(T.mode==='pan')movePan(pt);else if(T.mode==='pinch')movePinch();
+}
+function touchUp(e){
+ if(e.pointerType==='pen'){
+  T.pen=performance.now();const t=T.penTap;
+  if(t&&e.pointerId===t.pointerId){T.penTap=null;e.stopPropagation();e.preventDefault();if(e.type==='pointerup'&&!t.moved)replayTap(t);}
+  return;
+ }
+ if(e.pointerType!=='touch'||!T.pts.has(e.pointerId))return;
+ const cancelled=e.type==='pointercancel',mode=T.mode,tap=T.tap;T.pts.delete(e.pointerId);
+ if(mode==='ink'){if(!T.pts.size)resetTouch();return;}
+ e.stopPropagation();e.preventDefault();
+ if(mode==='tap'){if(!cancelled&&T.replay)replayTap(T.replay);resetTouch();return;}
+ if(mode==='pinch'){
+  endPinch().catch(failure);
+  if(T.pts.size===1){const [[id,pt]]=[...T.pts];T.mode='pan';startPan(id,pt.x,pt.y);}
+  return;
+ }
+ if(mode==='pan'){
+  const quick=tap&&!tap.moved&&performance.now()-tap.t<320;
+  endPan(!cancelled&&!(quick&&tap.fingers===2));
+  if(!T.pts.size){
+   if(!cancelled&&quick&&tap.fingers===2)twoFingerUndo();
+   else if(!cancelled&&quick&&tap.fingers===1)tapOnPage(tap);
+   resetTouch();
+  }
+ }
+}
+// A second finger turns a stroke that has just started into a scroll or zoom: put the page back as it was.
+function cancelInk(){
+ const g=gesture;if(!g)return;gesture=null;
+ const c=$('#ink-canvas');try{if(c?.hasPointerCapture(g.pointer))c.releasePointerCapture(g.pointer);}catch{}
+ if(g.changed&&g.before){const snap=g.before[S.page];if(snap&&snap.id===page()?.id){page().annotations=snap.annotations;page().comments=snap.comments;}}
+ if(page()?.infinite)paintInfinite(false);else drawInk();
+}
+// The pen came down while fingers were scrolling: stop scrolling, the pen wins.
+function dropTouches(){
+ const ws=$('#workspace');if(T.pinch&&ws){ws.style.transform='';ws.classList.remove('pinching');}
+ if(T.pan)pull(0);T.pts.clear();resetTouch();
+}
+function replayTap(r){
+ const fake={button:0,pointerType:r.pointerType,pointerId:r.pointerId,clientX:r.clientX,clientY:r.clientY,pressure:.5,ctrlKey:false,altKey:false,preventDefault(){},target:r.ghost?.isConnected?r.ghost:$('#ink-canvas')};
+ if(r.ghost?.isConnected)ghostPointerDown(fake);else pointerDown(fake);
+}
+// A single tap while scrolling: open an infinite canvas from the page list, or a comment pin under the finger.
+function tapOnPage(tap){
+ if(tap.ghost?.isConnected){const j=+tap.ghost.dataset.index;run(()=>goPage(j));return;}
+ const c=$('#ink-canvas'),p=page();if(!c||!p)return;const r=c.getBoundingClientRect();if(tap.x<r.left||tap.x>r.right||tap.y<r.top||tap.y>r.bottom)return;
+ const q=point({clientX:tap.x,clientY:tap.y,pointerType:'touch'}),pin=roots(p).findLast(root=>{const a=commentPosition(p,root);return Math.hypot(a.x-q.x,a.y-q.y)<18/S.zoom;});
+ if(pin){S.commentsOpen=true;S.activeThread=pin.id;renderComments();drawInk();}
+}
+function twoFingerUndo(){const h=history.get(S.active);if(!h?.undo.length){toast('没有可以撤销的操作');return;}run(async()=>{await undo();toast('已撤销（两指轻点）');});}
+// ----- one-finger scrolling, inertia, and pulling past the end of a page to turn it (single-page mode)
+function startPan(id,x,y){capture(id);T.pan={x,y,over:0,samples:[[x,y,performance.now()]]};}
+const flipsPages=()=>S.scrollMode==='single'&&!!page()&&!page().infinite&&doc().kind!=='discussion';
+function movePan(pt){
+ const p=T.pan,ws=$('#workspace');if(!p||!ws)return;const dx=pt.x-p.x,dy=pt.y-p.y;p.x=pt.x;p.y=pt.y;
+ const now=performance.now();p.samples.push([pt.x,pt.y,now]);while(p.samples.length>2&&now-p.samples[0][2]>100)p.samples.shift();
+ ws.scrollLeft-=dx;
+ if(flipsPages()){const max=Math.max(0,ws.scrollHeight-ws.clientHeight),v=ws.scrollTop+p.over-dy;p.over=v<0?v:v>max?v-max:0;ws.scrollTop=clamp(v,0,max);pull(p.over);}
+ else ws.scrollTop-=dy;
+}
+function pull(over){const w=$('#page-wrapper');if(!w)return;const d=Math.sign(over)*Math.min(72,Math.abs(over)*.4);w.style.transform=d?`translateY(${-d}px)`:'';w.classList.toggle('flip-pull',!!d);}
+function endPan(fling){
+ const p=T.pan;T.pan=null;if(!p)return;
+ if(p.over){
+  const w=$('#page-wrapper'),next=S.page+(p.over>0?1:-1),far=Math.abs(p.over)>110;
+  if(far&&next>=0&&next<doc().pages.length){pull(0);run(async()=>{await goPage(next,{at:p.over>0?'top':'bottom'});$('#page-wrapper')?.animate([{transform:`translateY(${p.over>0?40:-40}px)`,opacity:.5},{transform:'none',opacity:1}],{duration:240,easing:'cubic-bezier(.2,0,0,1)'});});return;}
+  const from=w?.style.transform;pull(0);if(from)w.animate([{transform:from},{transform:'none'}],{duration:220,easing:'cubic-bezier(.2,0,0,1)'});
+  if(far)toast(p.over>0?'已经是最后一页':'已经是第一页');return;
+ }
+ const now=performance.now(),a=p.samples[0],b=p.samples.at(-1);
+ if(!fling||!a||a===b||now-b[2]>60)return;
+ const dt=Math.max(16,b[2]-a[2]),vx=(b[0]-a[0])/dt,vy=(b[1]-a[1])/dt;if(Math.hypot(vx,vy)>.3)startFling(vx,vy);
+}
+function startFling(vx,vy){
+ const ws=$('#workspace');if(!ws)return;stopFling();let last=performance.now();
+ const step=now=>{const dt=Math.min(40,now-last);last=now;const k=Math.pow(.9965,dt);vx*=k;vy*=k;
+  const l=ws.scrollLeft,t=ws.scrollTop;ws.scrollLeft-=vx*dt;ws.scrollTop-=vy*dt;
+  if(!ws.isConnected||Math.hypot(vx,vy)<.03||(ws.scrollLeft===l&&ws.scrollTop===t)){T.fling=0;return;}
+  T.fling=requestAnimationFrame(step);};
+ T.fling=requestAnimationFrame(step);
+}
+function stopFling(){if(T.fling){cancelAnimationFrame(T.fling);T.fling=0;}}
+// ----- two fingers: the page is scaled as a picture while they move, then laid out at the new zoom with the same
+// spot under the fingers.
+function startPinch(){
+ const ws=$('#workspace'),wr=$('#page-wrapper');if(!ws||!wr)return;
+ for(const id of T.pts.keys())capture(id);
+ const [a,b]=[...T.pts.values()],mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2},dist=Math.max(24,Math.hypot(a.x-b.x,a.y-b.y));
+ const r=wr.getBoundingClientRect(),o=ws.getBoundingClientRect();
+ T.mode='pinch';T.pinch={mid0:mid,mid,dist0:dist,zoom0:S.zoom,scale:1,ax:(mid.x-r.left)/S.zoom,ay:(mid.y-r.top)/S.zoom};
+ ws.style.transformOrigin=`${mid.x-o.left}px ${mid.y-o.top}px`;ws.classList.add('pinching');
+}
+function movePinch(){
+ const p=T.pinch,ws=$('#workspace');if(!p||!ws||T.pts.size<2)return;
+ const [a,b]=[...T.pts.values()],mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2},dist=Math.max(24,Math.hypot(a.x-b.x,a.y-b.y));
+ p.scale=clamp(p.zoom0*dist/p.dist0,.3,3)/p.zoom0;p.mid=mid;
+ ws.style.transform=`translate(${mid.x-p.mid0.x}px,${mid.y-p.mid0.y}px) scale(${p.scale})`;
+}
+async function endPinch(){
+ const p=T.pinch,ws=$('#workspace');T.pinch=null;if(!p||!ws)return;
+ const zoom=Math.round(p.zoom0*p.scale*100)/100,dx=p.mid.x-p.mid0.x,dy=p.mid.y-p.mid0.y;
+ if(Math.abs(zoom-S.zoom)<.01||!S.active||!page()){ws.style.transform='';ws.classList.remove('pinching');ws.scrollLeft-=dx;ws.scrollTop-=dy;return;}
+ const pictures=new Map();ws.querySelectorAll('.page-ghost').forEach(g=>{const c=g.querySelector('canvas');if(c)pictures.set(g.dataset.index,c);});
+ const hadPage=$('#page-loading').hidden&&$('#pdf-canvas').width>1;
+ S.zoom=zoom;const shown=showPage({resetScroll:false});
+ ws.style.transform='';ws.classList.remove('pinching');
+ ws.querySelectorAll('.page-ghost').forEach(g=>{const c=pictures.get(g.dataset.index);if(c&&!g.querySelector('canvas'))g.prepend(c);});
+ const r=$('#page-wrapper').getBoundingClientRect();
+ ws.scrollLeft+=r.left+p.ax*zoom-p.mid.x;ws.scrollTop+=r.top+p.ay*zoom-p.mid.y;
+ if(page().infinite)paintInfinite(false);else if(hadPage)$('#page-loading').hidden=true;  // keep showing the old picture, stretched, until the sharp one is ready
+ await shown;
+}
+// ----- the first time a pen is used, fingers switch to scrolling (palm rejection)
+function penSeen(){
+ if(T.penAuto)return;T.penAuto=true;
+ run(async()=>{await store.setSetting('penAuto',true);if(S.penOnly)return;S.penOnly=true;await store.setSetting('penOnly',true);const t=$('#pen-only');if(t)t.checked=true;updateTouch();toast('检测到触控笔：已开启「仅用笔书写」，手指用来滚动和缩放。可以在设置里关闭');});
+}
+async function startNative(){
+ T.penAuto=!!await store.setting('penAuto');
+ window.addEventListener('pointerdown',e=>{if(e.pointerType==='pen'){T.pen=performance.now();if(S.active)penSeen();}},true);
+ window.addEventListener('pointermove',e=>{if(e.pointerType==='pen')T.pen=performance.now();},{capture:true,passive:true});
+ Native.init({onBack:nativeBack,onPause:()=>{try{finishText();}catch{}run(flush);},onResume:()=>{if(!S.active&&$('.library'))run(refreshStorage);}});
+}
+// Android back button / back gesture: close what is open, step by step; on the library, leave the app.
+async function nativeBack(){
+ if(modal.open){closeModal();return true;}
+ if(app.classList.contains('nav-open')){app.classList.remove('nav-open');return true;}
+ if(textarea){finishText();return true;}
+ if(S.active&&S.findOpen){toggleFind();return true;}
+ if(S.active&&doc()?.kind!=='discussion'&&S.selection.size){S.selection.clear();drawInk();return true;}
+ if(S.active&&doc()?.kind!=='discussion'&&S.commentsOpen&&view.clientWidth<600){toggleComments();return true;}
+ if(S.active){await goHome();return true;}
+ if(S.query||S.view!=='all'){S.query='';S.view='all';renderLibrary();return true;}
+ return false;
+}
+function nativeHelp(){
+ const rows=[['touch','一指','书写；开启「仅用笔书写」或用浏览工具时，一指拖动页面'],['pinch','两指','拖动页面、捏合缩放；两指轻点一下撤销'],['pen','触控笔','始终书写。第一次使用触控笔时会自动开启「仅用笔书写」，手掌碰到屏幕不会乱画'],['single-page','单页翻页','在页面顶端或底端继续拉动，松手就翻页'],['arrow','返回键','关闭对话框和菜单，再按一次回到笔记库']];
+ dialog('使用帮助',`<div class="gesture-list">${rows.map(([i,a,b])=>`<div class="gesture-row"><span class="gesture-icon">${icon(i)}</span><span><strong>${a}</strong><small>${b}</small></span></div>`).join('')}</div><div class="help-grid"><div><strong>${icon('lasso')}套索</strong><p>框出内容后可拖动、复制、粘贴或删除；在文字上双击可以直接修改。</p></div><div><strong>${icon('title')}页面标题</strong><p>在页面顶部写标题，日期和时间显示在标题下方。第 1 页的标题会同步成笔记名称。</p></div><div><strong>${icon('eraser')}橡皮擦</strong><p>「整笔」碰到就删除整条笔迹；「局部」只擦掉经过的部分。</p></div><div><strong>${icon('comment')}批注与帖子</strong><p>批注固定在页面或笔迹上；帖子一页一帖，可多楼层、逐层回复。</p></div><div><strong>${icon('shield')}保存</strong><p>笔记自动保存在这台设备上。卸载墨页会删除笔记：换手机或卸载之前，请在「设置 → 导入导出」里一键导出全部笔记。</p></div><div><strong>${icon('download')}导出</strong><p>导出的 PDF、备份和压缩包保存在手机的「文档 › 墨页」文件夹，也可以直接发送到其他应用。</p></div></div>`);
 }
 // ---------- Rich text boxes (OneNote-style containers) ----------
 // Boxes live as DOM over the canvas on the open page (crisp at every zoom, edited in place);
@@ -517,8 +712,11 @@ function addRichBox(html,at){
 
 async function goPage(i,{at='top'}={}){finishText();if(!doc()||i<0||i>=doc().pages.length)return;if(i!==S.page){S.commentDraft=null;S.activeThread=null;}S.page=i;await showPage({at});const active=document.querySelector('.page-thumb.active');active?.scrollIntoView({block:'nearest'});}
 async function changeZoom(delta){finishText();S.zoom=clamp(Math.round((S.zoom+delta)*10)/10,.3,3);await showPage({resetScroll:false});}
-async function fitIfOverflow(){const p=page(),w=$('#workspace');if(p&&!p.infinite&&!p.reading&&w&&p.width*S.zoom>w.clientWidth-65)await fit();}
-async function fit(){const w=$('#workspace');S.zoom=page().infinite?1:clamp((w.clientWidth-65)/page().width,.3,1.8);await showPage();}
+async function fitIfOverflow(){const p=page(),w=$('#workspace');if(p&&!p.infinite&&!p.reading&&w&&p.width*S.zoom>w.clientWidth-fitMargin(w))await fit();}
+async function fit(){const w=$('#workspace');S.zoom=page().infinite?1:clamp((w.clientWidth-fitMargin(w))/page().width,.3,1.8);await showPage();}
+// Android: leave exactly the workspace's own side padding (narrow on phones), so a page fills the width.
+const fitMargin=w=>{if(!NATIVE)return 65;const c=getComputedStyle(w);return (parseFloat(c.paddingLeft)||0)+(parseFloat(c.paddingRight)||0)+4;};
+function nativeFitZoom(){const p=page(),w=$('#workspace');if(!p||p.infinite||!w)return;const room=w.clientWidth-fitMargin(w);if(p.width*S.zoom>room)S.zoom=clamp(Math.floor(room/p.width*100)/100,.3,1.8);}
 async function goHome(){if(EMBED){finishText();await flush();host()?.closeSplit();return;}const ticket=++navigation;finishText();await flush();if(S.split)await closeSplit();if(ticket!==navigation)return;S.pdf=null;renderLibrary();await releasePdfs(null);}
 async function addPage(){
  const cur=page(),ct=P.canvasType(doc().canvasType||'plain'),modes=ct?.paperModes||['infinite','paged'];let template=titleEditable(cur)?cur.template:'dot';const mode=cur.infinite?'infinite':'paged';
@@ -533,6 +731,7 @@ async function pageMutation(a){const before=pageSnapshot();if(a==='bookmark')pag
 async function download(data,name,mime){
  if(EMBED&&host()?.download)return host().download(data,name,mime);
  const blob=data instanceof Blob?data:new Blob([data],{type:mime});
+ if(NATIVE)return Native.saveFile(blob,name,{dialog:savedDialog,toast});
  if(window.desktop?.saveBegin){
   const r=await window.desktop.saveBegin({name,size:blob.size});if(r?.error)throw new Error(r.error);if(!r?.token)return false;
   let ok=false;try{const step=16*1024*1024;for(let o=0;o<blob.size||o===0;o+=step){const res=await window.desktop.saveChunk(r.token,new Uint8Array(await blob.slice(o,o+step).arrayBuffer()));if(res?.error)throw new Error(res.error);if(!blob.size)break;}ok=true;}
@@ -541,6 +740,8 @@ async function download(data,name,mime){
  }
  const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.hidden=true;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);return true;
 }
+// Android: an export lands in 文档 › 墨页 (the Files app shows it); it can be sent on to another app right away.
+function savedDialog(file,uri){dialog('已保存到手机',`<p class="help-note">保存在「文档 › 墨页」文件夹里：<br><strong>${E(file)}</strong></p><p class="field-hint">可以在手机的「文件」应用里找到它，也可以现在发送到微信、网盘、邮件等应用。</p><div class="modal-actions"><button class="btn ghost" type="button" data-cancel>完成</button><button class="btn primary" type="button" id="saved-share">${icon('share')}发送…</button></div>`);$('#saved-share').onclick=()=>run(async()=>{closeModal();await Native.shareUri(uri,file);});}
 function filename(s){return s.replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').replace(/[. ]+$/,'').slice(0,100)||'InkNote';}
 function exportDialog(){finishText();const d=doc();dialog('导出',`<div class="menu-choices"><button type="button" data-export="pdf">${icon('file')}<span>导出 PDF<small>${d.kind==='pdf'?'保留原文和可检索文字，批注合并为图层':'无限画布按内容分成 A4 页导出'}</small></span></button><button type="button" data-export="backup">${icon('book')}<span>导出可编辑备份 · .inknote<small>包含原始文档、可编辑笔迹、图片与页面设置</small></span></button></div><p class="help-note">想继续修改笔迹，请保留 .inknote 备份；PDF 适合阅读与分享。</p>`);modal.querySelectorAll('[data-export]').forEach(b=>b.onclick=()=>run(async()=>{const type=b.dataset.export;closeModal();if(type==='backup')return exportBackup(doc());await doExport();}));}
 async function doExport(){finishText();await flush();const d=doc();const btn=$('[data-action="export"]');if(btn)btn.disabled=true;toast('正在生成 PDF…');try{const copy=structuredClone(d);for(const q of copy.pages)q.annotations=displayAnns(q,copy);const bytes=await exportPdf(copy,()=>{},{pdf:S.pdf,prepareRich});if(await download(bytes,filename(d.title)+'-批注.pdf','application/pdf'))toast('PDF 已导出');}finally{if(btn?.isConnected)btn.disabled=false;}}
@@ -603,11 +804,12 @@ async function importBackup(file,opts={}){
 function toggleFind(){S.findOpen=!S.findOpen;$('.pdf-find')?.remove();if(!S.findOpen)return;const f=document.createElement('div');f.className='pdf-find';f.setAttribute('role','search');f.innerHTML=`${icon('search')}<input id="pdf-find-input" placeholder="查找原文、文字与批注" aria-label="查找文档内容" value="${E(S.findQuery)}" autocomplete="off"><span id="find-count"></span><button class="icon-btn tiny" data-action="find-prev" title="上一个 (Shift Enter)" aria-label="上一个结果">${icon('left')}</button><button class="icon-btn tiny" data-action="find-next" title="下一个 (Enter)" aria-label="下一个结果">${icon('chevron')}</button><button class="icon-btn tiny" data-action="find" title="关闭 (Esc)" aria-label="关闭查找">${icon('close')}</button>`;$('.editor').append(f);const input=$('#pdf-find-input');input.focus();input.select();let timer,epoch=0;input.oninput=()=>{clearTimeout(timer);const token=++epoch;S.findQuery=input.value.trim();const q=S.findQuery,id=S.active;S.find=[];$('#find-count').textContent=q?'查找中…':'';timer=setTimeout(()=>run(async()=>{if(!q)return;const matches=await pdfTextMatches(doc(),q,passwordPrompt);if(token!==epoch||id!==S.active||!$('#find-count'))return;S.find=matches;S.findIndex=0;$('#find-count').textContent=matches.length?`1 / ${matches.length} 页`:'没有结果';if(matches.length)await goPage(matches[0]);}),300);};input.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();run(()=>findNext(e.shiftKey?-1:1));}if(e.key==='Escape')toggleFind();};}
 async function findNext(delta){if(!S.find.length)return;S.findIndex=(S.findIndex+delta+S.find.length)%S.find.length;$('#find-count').textContent=`${S.findIndex+1} / ${S.find.length} 页`;await goPage(S.find[S.findIndex]);}
 function showHelp(){
+ if(NATIVE)return nativeHelp();
  const keys=(...k)=>k.map(x=>`<kbd class="shortcut">${x}</kbd>`).join('');
  const rows=[['画笔 · 荧光笔 · 橡皮擦',keys('P','H','E')],['文字 · 矩形 · 套索',keys('T','R','L')],['拖动浏览 · 插入批注',keys('V','C')],['撤销 · 重做',keys('Ctrl Z','Ctrl Shift Z')],['保存',keys('Ctrl S')],['文档内查找 · 搜索笔记',keys('Ctrl F','Ctrl K')],['导出 PDF',keys('Ctrl Shift E')],['缩放页面',keys('Ctrl 滚轮')],['翻页',keys('PageUp','PageDown')],['复制 · 剪切 · 粘贴所选',keys('Ctrl C','Ctrl X','Ctrl V')],['复制一份 · 全选',keys('Ctrl D','Ctrl A')],['删除所选内容',keys('Delete')],['切换整笔 / 局部擦除',keys('E','再按 E')],['分屏打开另一本',keys('Ctrl \\')],['完成文字 · 发送回复',keys('Ctrl Enter')]];
  dialog('快捷键与帮助',`<div class="shortcut-list">${rows.map(([a,b])=>`<div class="menu-row"><span>${a}</span><span class="keys">${b}</span></div>`).join('')}</div><div class="help-grid"><div><strong>${icon('pen')}书写</strong><p>开启「仅用笔」后只有触控笔能书写，手指用于滚动。画笔会随笔压变化粗细。</p></div><div><strong>${icon('lasso')}套索</strong><p>框出内容后可拖动、复制、粘贴或删除；双击文字直接修改。</p></div><div><strong>${icon('title')}页面标题</strong><p>在页面顶部写标题，日期和时间显示在标题下方。第 1 页的标题会同步成笔记名称。</p></div><div><strong>${icon('split')}分屏</strong><p>点击顶栏的分屏按钮，在右侧打开另一本笔记，两边各自编辑、各自保存。</p></div><div><strong>${icon('eraser')}橡皮擦</strong><p>「整笔」碰到就删除整条笔迹；「局部」只擦掉经过的部分。</p></div><div><strong>${icon('comment')}批注与帖子</strong><p>批注固定在页面或笔迹上；帖子一页一帖，可多楼层、逐层回复。</p></div><div><strong>${icon('shield')}保存</strong><p>笔记自动保存在本机。左下角「笔记库文件夹」可以选一个文件夹（网盘同步文件夹、U 盘都行），全部笔记会以普通文件放在里面，和侧边栏一致；复制进去的 PDF、电子书会自动导入。</p></div></div>`);
 }
-async function settings(){const storage=await navigator.storage?.estimate?.().catch(()=>({}));const used=(storage?.usage||0)/1024/1024;dialog('设置',`<div class="settings-section"><label class="switch setting-switch"><input type="checkbox" id="setting-pen" role="switch" ${S.penOnly?'checked':''}><span class="switch-track" aria-hidden="true"></span><span class="switch-label"><strong>仅允许触控笔书写</strong><small>手指用于滚动和缩放；关闭时鼠标、触控笔和手指都可以书写。</small></span></label></div><div class="field-label">翻页方式</div>${scrollModeChoice(S.scrollMode)}<p class="field-hint">连续滚动：页面上下相连，像 PDF 阅读器一样一直滚下去。单页翻页：一次显示一页，滚到页面底部再滚动就翻到下一页。</p><div class="field-label">书写工具栏位置</div>${dockChoice(S.toolbarDock)}<p class="field-hint">也可以直接拖动工具栏左端的把手，放到页面的任意一边。</p><div class="field-label">本机笔记</div><div class="storage-meter" style="--amount:${Math.min(100,Math.max(1,(storage?.usage||0)/(storage?.quota||1)*100))}%"><span></span></div><p class="storage-text">${S.docs.length} 本笔记 · 已使用约 ${used.toFixed(1)} MB</p><p class="help-note">笔记保存在这台电脑的应用数据中，同时可以在「笔记库文件夹」里放一份普通文件。换电脑时，在新电脑上选同一个文件夹即可。</p><div class="menu-choices"><button type="button" id="settings-plugins">${icon('plugin')}<span>插件<small>启用、停用、安装或卸载功能模块（画布、帖子、阅读…）</small></span></button><button type="button" id="settings-exchange">${icon('folder')}<span>笔记库文件夹<small>笔记以普通文件放在你选的文件夹里，和侧边栏一致；复制进去的文件自动导入</small></span></button><button type="button" id="settings-converter">${icon('reading')}<span>选择 Calibre 转换组件<small>用于 MOBI、AZW3、RTF 等格式；需先在本机安装 Calibre</small></span></button><button type="button" id="settings-help">${icon('help')}<span>快捷键与使用帮助</span></button></div>${actions('保存设置')}`,{submit:async f=>{S.penOnly=$('#setting-pen').checked;await store.setSetting('penOnly',S.penOnly);setToolbarDock(f.get('dock'));setScrollMode(f.get('scrollMode'),{quiet:true});closeModal();if(S.active&&$('#pen-only')){$('#pen-only').checked=S.penOnly;updateTouch();}toast('设置已保存');}});$('#settings-help').onclick=showHelp;$('#settings-plugins').onclick=()=>run(async()=>{closeModal();await pluginManager();});$('#settings-exchange').onclick=()=>run(async()=>{closeModal();await exchangeDialog();});$('#settings-converter').onclick=()=>run(async()=>{if(!window.desktop?.chooseConverter)throw new Error('请在独立桌面版中选择 Calibre 的 ebook-convert.exe');const r=await window.desktop.chooseConverter();if(r?.error)throw new Error(r.error);if(r?.selected)toast('Calibre 转换组件已设置');});}
+async function settings(){const storage=await navigator.storage?.estimate?.().catch(()=>({}));const used=(storage?.usage||0)/1024/1024;dialog('设置',`<div class="settings-section"><label class="switch setting-switch"><input type="checkbox" id="setting-pen" role="switch" ${S.penOnly?'checked':''}><span class="switch-track" aria-hidden="true"></span><span class="switch-label"><strong>仅允许触控笔书写</strong><small>${NATIVE?'开启后手指只用来滚动和缩放；关闭时一指书写，两指滚动和缩放。第一次用触控笔时会自动开启。':'手指用于滚动和缩放；关闭时鼠标、触控笔和手指都可以书写。'}</small></span></label></div><div class="field-label">翻页方式</div>${scrollModeChoice(S.scrollMode)}<p class="field-hint">连续滚动：页面上下相连，像 PDF 阅读器一样一直滚下去。单页翻页：一次显示一页，滚到页面底部再滚动就翻到下一页。</p><div class="field-label">书写工具栏位置</div>${dockChoice(S.toolbarDock)}<p class="field-hint">也可以直接拖动工具栏左端的把手，放到页面的任意一边。</p><div class="field-label">本机笔记</div><div class="storage-meter" style="--amount:${Math.min(100,Math.max(1,(storage?.usage||0)/(storage?.quota||1)*100))}%"><span></span></div><p class="storage-text">${S.docs.length} 本笔记 · 已使用约 ${used.toFixed(1)} MB</p>${NATIVE?'<p class="help-note">笔记保存在这台设备的应用数据中。<strong>卸载墨页会同时删除这些笔记</strong>：换手机或卸载之前，请先在「导入导出」里一键导出全部笔记。</p>':'<p class="help-note">笔记保存在这台电脑的应用数据中，同时可以在「笔记库文件夹」里放一份普通文件。换电脑时，在新电脑上选同一个文件夹即可。</p>'}<div class="menu-choices"><button type="button" id="settings-plugins">${icon('plugin')}<span>插件<small>启用、停用、安装或卸载功能模块（画布、帖子、阅读…）</small></span></button><button type="button" id="settings-exchange">${icon('folder')}${NATIVE?'<span>导入导出<small>一键导出全部笔记（.zip），或导入 .inknote 备份和导出的压缩包</small></span>':'<span>笔记库文件夹<small>笔记以普通文件放在你选的文件夹里，和侧边栏一致；复制进去的文件自动导入</small></span>'}</button><button type="button" id="settings-converter">${icon('reading')}<span>选择 Calibre 转换组件<small>用于 MOBI、AZW3、RTF 等格式；需先在本机安装 Calibre</small></span></button><button type="button" id="settings-help">${icon('help')}<span>快捷键与使用帮助</span></button></div>${actions('保存设置')}`,{submit:async f=>{S.penOnly=$('#setting-pen').checked;await store.setSetting('penOnly',S.penOnly);setToolbarDock(f.get('dock'));setScrollMode(f.get('scrollMode'),{quiet:true});closeModal();if(S.active&&$('#pen-only')){$('#pen-only').checked=S.penOnly;updateTouch();}toast('设置已保存');}});$('#settings-help').onclick=showHelp;$('#settings-plugins').onclick=()=>run(async()=>{closeModal();await pluginManager();});$('#settings-exchange').onclick=()=>run(async()=>{closeModal();await exchangeDialog();});$('#settings-converter').onclick=()=>run(async()=>{if(!window.desktop?.chooseConverter)throw new Error('请在独立桌面版中选择 Calibre 的 ebook-convert.exe');const r=await window.desktop.chooseConverter();if(r?.error)throw new Error(r.error);if(r?.selected)toast('Calibre 转换组件已设置');});}
 async function newDiscussion(){
  let images=[],reading=false;
  dialog('新建帖子',`<label class="field-label" for="post-title">标题</label><input class="field-input" name="title" id="post-title" maxlength="160" required placeholder="这一页想记录什么？" autocomplete="off"><label class="field-label" for="post-body">主楼 · 1楼</label><textarea class="field-input" name="body" id="post-body" rows="6" maxlength="20000" placeholder="写下正文。发表后可以继续发 2 楼、3 楼，或逐层回复。" required></textarea><div class="compose-image-row"><label class="btn tonal small" for="post-image-files">${icon('image')}添加图片</label><input id="post-image-files" class="visually-hidden" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple><span class="field-hint">最多 12 张，显示为正方形缩略图，点击看原图</span></div><div class="comment-images" id="post-images-preview"></div><p class="help-note">每个帖子单独占一页，创建日期和时间自动记录。</p>${actions('发表帖子')}`,{submit:async f=>{
@@ -1441,7 +1643,7 @@ async function mergeImport(sources,{explicit=false}={}){
 }
 async function exchangeDialog(){
  if(!exchangeDesktop()){
-  dialog('导入导出',`<div class="menu-choices"><button type="button" id="x-export">${icon('download')}<span>一键导出全部笔记<small>打包成一个 .zip 文件下载</small></span></button><button type="button" id="x-pick">${icon('file')}<span>选择文件导入…<small>选一个或多个 .inknote 文件，或导出的 .zip 压缩包</small></span></button></div><p class="help-note">在桌面版里可以设置「笔记库文件夹」：笔记以普通文件放在你选的文件夹里，复制进去的 PDF、电子书会自动导入。</p>`);
+  dialog('导入导出',`<div class="menu-choices"><button type="button" id="x-export">${icon('download')}<span>一键导出全部笔记<small>${NATIVE?'打包成一个 .zip 文件，保存到「文档 › 墨页」':'打包成一个 .zip 文件下载'}</small></span></button><button type="button" id="x-pick">${icon('file')}<span>选择文件导入…<small>选一个或多个 .inknote 文件，或导出的 .zip 压缩包</small></span></button></div>${NATIVE?'<p class="help-note">导出的 .zip 可以发送到电脑或新手机，再用「选择文件导入」恢复。<strong>卸载墨页会删除手机上的笔记</strong>，卸载之前请先导出。</p>':'<p class="help-note">在桌面版里可以设置「笔记库文件夹」：笔记以普通文件放在你选的文件夹里，复制进去的 PDF、电子书会自动导入。</p>'}`);
   $('#x-export').onclick=()=>run(async()=>{closeModal();await exportAll();});$('#x-pick').onclick=()=>{closeModal();$('#merge-input').click();};return;
  }
  const st=await exchangeState();EXCHANGE.status=await xcall('exchange:status').catch(()=>null);
@@ -1481,13 +1683,17 @@ window.__inknoteLibrary=()=>({busy:EXCHANGE.busy,scheduled:!!EXCHANGE.scheduled,
 // The page editor calls the active note's page extension at a few fixed points: mount → pageShown → changed → unmount,
 // underlay (drawn under the live annotations) and displayAnnotations (thumbnails, page pictures, PDF export).
 let mountedExt=null,pluginState={},pluginsReady=false;
-const pluginBridge=()=>{try{return window.desktop?.plugins?window.desktop:(EMBED&&window.parent.desktop?.plugins?window.parent.desktop:null);}catch{return null;}};
+const nativePlugins=NATIVE?Native.pluginBridge():null;let nativePluginRoot=null;
+// The Android build keeps the built-in plugins in builtin-plugins/: Capacitor reserves a top-level plugins/ folder for Cordova.
+const BUILTIN_DIR=Native.NATIVE?'builtin-plugins/':'plugins/';
+const pluginBridge=()=>{if(nativePlugins)return nativePlugins;try{return window.desktop?.plugins?window.desktop:(EMBED&&window.parent.desktop?.plugins?window.parent.desktop:null);}catch{return null;}};
+const pluginFolders=()=>pluginBridge()?.capabilities?.folders!==false;
 async function pcall(channel,payload){const b=pluginBridge();if(!b)throw new Error('安装插件只在墨页桌面版中可用。');const r=await b.plugins(channel,payload);if(r?.error)throw new Error(r.error);return r?.value;}
 function extCall(name){const d=S.active?doc():null,p=d?page():null;if(!p||d.kind==='discussion')return;const ext=P.pageExtension(d);if(!ext?.[name])return;try{ext[name](p);}catch(e){console.error('plugin '+name,e);}}
 function extUnmount(){const m=mountedExt;mountedExt=null;if(m?.unmount){try{m.unmount();}catch(e){console.error('plugin unmount',e);}}}
 function displayAnns(q,d=doc()){const ext=P.pageExtension(d);if(ext?.displayAnnotations&&q.ext?.[ext.key]){try{const list=ext.displayAnnotations(q);if(Array.isArray(list))return list;}catch(e){console.error('plugin displayAnnotations',e);}}return q.annotations;}
 function unsupportedFile(name){const ext=name.split('.').pop().toLowerCase(),owner=P.plugins().find(p=>p.manifest.fileTypes?.includes(ext));if(owner)return `打开 .${ext} 文件需要「${owner.manifest.name}」插件，请在「设置 → 插件」中${owner.removed?'重新安装':'启用'}它。`;return `墨页还不能打开 .${ext} 文件：没有插件处理这种格式。`;}
-function refreshAccept(){const input=$('#file-input');if(!input)return;const exts=new Set(['inknote']);for(const i of P.importers())for(const e of i.extensions)exts.add(e);input.accept=[...exts].map(e=>'.'+e).join(',');}
+function refreshAccept(){const input=$('#file-input');if(!input)return;if(NATIVE){input.removeAttribute('accept');return;}const exts=new Set(['inknote']);for(const i of P.importers())for(const e of i.extensions)exts.add(e);input.accept=[...exts].map(e=>'.'+e).join(',');}
 function copyText(text){const t=document.createElement('textarea');t.value=text;t.style.cssText='position:fixed;left:-9999px;top:0';document.body.append(t);t.select();const ok=document.execCommand('copy');t.remove();return ok;}
 function pluginMenu(title,items,{subtitle=''}={}){
  dialog(title,`<div class="menu-choices">${items.map((it,i)=>it.separator?'<div class="menu-sep"></div>':`<button type="button" data-menu-item="${i}" class="${it.danger?'danger':''}" ${it.disabled?'disabled':''}>${icon(it.icon||'chevron')}<span>${E(it.label)}${it.sub?`<small>${E(it.sub)}</small>`:''}</span></button>`).join('')}</div>`,{subtitle});
@@ -1521,12 +1727,12 @@ const pluginServices={
  },
 };
 const makeApi=p=>P.createApi(p,pluginServices);
-const userBase=id=>new URL(`user-plugins/${encodeURIComponent(id)}/`,location.href).href;
-async function userPluginSources(){if(!pluginBridge())return [];try{return (await pcall('plugins:list')||[]).map(x=>({id:x.id,base:userBase(x.id),source:'user',stamp:x.stamp}));}catch(e){console.warn('user plugins',e);return [];}}
+const userBase=id=>nativePluginRoot?nativePluginRoot+encodeURIComponent(id)+'/':new URL(`user-plugins/${encodeURIComponent(id)}/`,location.href).href;
+async function userPluginSources(){if(!pluginBridge())return [];if(nativePlugins&&!nativePluginRoot){try{nativePluginRoot=await Native.pluginRoot();}catch(e){console.warn('plugin folder',e);return [];}}try{return (await pcall('plugins:list')||[]).map(x=>({id:x.id,base:userBase(x.id),source:'user',stamp:x.stamp}));}catch(e){console.warn('user plugins',e);return [];}}
 async function loadPlugins(){
  pluginState=await store.setting('plugins')||{};
- let builtin=[];try{builtin=await (await fetch('plugins/builtin.json',{cache:'no-store'})).json();}catch(e){console.warn('built-in plugins',e);}
- const sources=(Array.isArray(builtin)?builtin:[]).filter(id=>typeof id==='string'&&/^[a-z0-9][a-z0-9-]{1,40}$/.test(id)).map(id=>({id,base:new URL(`plugins/${id}/`,location.href).href,source:'builtin'}));
+ let builtin=[];try{builtin=await (await fetch(BUILTIN_DIR+'builtin.json',{cache:'no-store'})).json();}catch(e){console.warn('built-in plugins',e);}
+ const sources=(Array.isArray(builtin)?builtin:[]).filter(id=>typeof id==='string'&&/^[a-z0-9][a-z0-9-]{1,40}$/.test(id)).map(id=>({id,base:new URL(`${BUILTIN_DIR}${id}/`,location.href).href,source:'builtin'}));
  sources.push(...await userPluginSources());
  await P.discover(sources,pluginState,APP_VERSION);await P.activateAll(makeApi);
  pluginsReady=true;refreshAccept();
@@ -1573,12 +1779,12 @@ async function rescanPlugins({quiet=false}={}){
 }
 let rescanTimer=0;window.addEventListener('focus',()=>{if(!pluginsReady||EMBED||!pluginBridge())return;clearTimeout(rescanTimer);rescanTimer=setTimeout(()=>run(()=>rescanPlugins({quiet:true})),400);});
 async function pluginManager(){
- const bridge=!!pluginBridge(),all=P.plugins(),order=p=>p.source==='builtin'?0:1;
+ const bridge=!!pluginBridge(),folders=bridge&&pluginFolders(),all=P.plugins(),order=p=>p.source==='builtin'?0:1;
  const row=p=>`<div class="plugin-row ${p.enabled?'':'off'}" data-plugin="${E(p.manifest.id)}"><span class="plugin-icon">${pIcon(p.manifest.icon,p.manifest.id)}</span><div class="plugin-text"><strong>${E(p.manifest.name)}</strong><span class="plugin-meta">${E(p.manifest.version)} · ${p.source==='user'?'已安装':'内置'}${p.manifest.author?' · '+E(p.manifest.author):''}</span><small>${E(p.manifest.description)}</small>${p.error?`<small class="plugin-error">${E(p.error)}</small>`:''}</div><label class="switch plugin-switch" title="${p.enabled?'点击停用':'点击启用'}"><input type="checkbox" role="switch" data-plugin-toggle ${p.enabled?'checked':''} ${p.error?'disabled':''} aria-label="启用「${E(p.manifest.name)}」"><span class="switch-track" aria-hidden="true"></span></label><button type="button" class="icon-btn" data-plugin-remove title="卸载" aria-label="卸载「${E(p.manifest.name)}」">${icon('trash')}</button></div>`;
  const gone=p=>`<div class="plugin-row off" data-plugin="${E(p.manifest.id)}"><span class="plugin-icon">${pIcon(p.manifest.icon,p.manifest.id)}</span><div class="plugin-text"><strong>${E(p.manifest.name)}</strong><span class="plugin-meta">${E(p.manifest.version)} · 内置 · 已卸载</span><small>${E(p.manifest.description)}</small></div><button type="button" class="btn tonal small" data-plugin-restore>${icon('install')}重新安装</button></div>`;
  const active=all.filter(p=>!p.removed).sort((a,b)=>order(a)-order(b)),removed=all.filter(p=>p.removed);
  dialog('插件',`<p class="help-note">墨页本身是一个载体：能新建和打开什么，由下面的插件决定。停用或卸载插件后，它的入口会隐藏，已有笔记都会保留，重新启用即可打开。</p><div class="plugin-list">${active.map(row).join('')||'<p class="help-note">还没有插件。</p>'}</div>${removed.length?`<div class="field-label">已卸载的内置插件</div><div class="plugin-list">${removed.map(gone).join('')}</div>`:''}
-  <div class="menu-choices">${bridge?`<button type="button" id="plugin-install-file">${icon('install')}<span>从文件安装插件…<small>.inkplugin 或 .zip 插件包</small></span></button><button type="button" id="plugin-install-folder">${icon('folder-open')}<span>从文件夹安装插件…<small>选一个包含 plugin.json 的文件夹</small></span></button><button type="button" id="plugin-open-folder">${icon('folder')}<span>打开插件文件夹<small>也可以把插件文件夹直接复制进去，回到墨页时会自动扫描</small></span></button>`:''}<button type="button" id="plugin-guide">${icon('code')}<span>插件开发指南<small>想让其他 AI 做新模块：把需求和这份指南一起发给它</small></span></button></div>${bridge?'':'<p class="field-hint">浏览器预览版只能使用内置插件，安装插件请使用墨页桌面版。</p>'}`,{subtitle:`插件接口版本 ${P.API_VERSION} · 墨页 ${APP_VERSION}`,size:'mid'});
+  <div class="menu-choices">${bridge?`<button type="button" id="plugin-install-file">${icon('install')}<span>从文件安装插件…<small>.inkplugin 或 .zip 插件包</small></span></button>${folders?`<button type="button" id="plugin-install-folder">${icon('folder-open')}<span>从文件夹安装插件…<small>选一个包含 plugin.json 的文件夹</small></span></button><button type="button" id="plugin-open-folder">${icon('folder')}<span>打开插件文件夹<small>也可以把插件文件夹直接复制进去，回到墨页时会自动扫描</small></span></button>`:''}`:''}<button type="button" id="plugin-guide">${icon('code')}<span>插件开发指南<small>想让其他 AI 做新模块：把需求和这份指南一起发给它</small></span></button></div>${bridge?'':'<p class="field-hint">浏览器预览版只能使用内置插件，安装插件请使用墨页桌面版。</p>'}`,{subtitle:`插件接口版本 ${P.API_VERSION} · 墨页 ${APP_VERSION}`,size:'mid'});
  modal.querySelectorAll('[data-plugin-toggle]').forEach(t=>t.onchange=()=>run(async()=>{const id=t.closest('[data-plugin]').dataset.plugin,name=P.plugin(id)?.manifest.name;try{await setPluginEnabled(id,t.checked);toast(t.checked?`已启用「${name}」`:`已停用「${name}」：入口已隐藏，笔记保留`);}finally{await pluginManager();}}));
  modal.querySelectorAll('[data-plugin-remove]').forEach(b=>b.onclick=()=>{const id=b.closest('[data-plugin]').dataset.plugin,p=P.plugin(id);
   dialog(`卸载「${p.manifest.name}」？`,`<p class="help-note">${p.source==='user'?'会从插件文件夹删除这个插件。':'这是内置插件，卸载后可以随时在这里重新安装。'}用它创建的笔记都会保留，重新安装后就能打开。</p>${actions('卸载',true)}`,{submit:async()=>{closeModal();try{await uninstallPlugin(id);toast(`已卸载「${p.manifest.name}」`);}finally{await pluginManager();}}});});
@@ -1586,17 +1792,19 @@ async function pluginManager(){
  $('#plugin-guide').onclick=()=>run(pluginGuide);
  if(!bridge)return;
  $('#plugin-install-file').onclick=()=>{closeModal();$('#plugin-input').click();};
+ if(!folders)return;
  $('#plugin-install-folder').onclick=()=>run(async()=>{closeModal();const r=await pcall('plugins:install-folder');if(r?.id)await afterInstall(r.id,r.stamp);});
  $('#plugin-open-folder').onclick=()=>run(()=>pcall('plugins:open-folder'));
 }
 async function pluginGuide(){
  let md='';try{const r=await fetch('plugin-sdk/'+encodeURIComponent('插件开发指南.md'),{cache:'no-store'});if(r.ok)md=await r.text();}catch{}
  if(!md)throw new Error('找不到插件开发指南文件。');
- dialog('插件开发指南',`<div class="guide-view rich">${markdownToHtml(md)}</div><div class="modal-actions">${pluginBridge()?`<button class="btn ghost" type="button" id="guide-folder">${icon('folder-open')}打开开发包文件夹</button>`:''}<button class="btn tonal" type="button" id="guide-copy">${icon('copy')}复制全文（发给 AI）</button><button class="btn primary" type="button" data-cancel>完成</button></div>`,{subtitle:`插件接口版本 ${P.API_VERSION} · 开发包里还有接口类型文件和示例插件`,size:'wide'});
+ dialog('插件开发指南',`<div class="guide-view rich">${markdownToHtml(md)}</div><div class="modal-actions">${pluginBridge()&&pluginFolders()?`<button class="btn ghost" type="button" id="guide-folder">${icon('folder-open')}打开开发包文件夹</button>`:''}<button class="btn tonal" type="button" id="guide-copy">${icon('copy')}复制全文（发给 AI）</button><button class="btn primary" type="button" data-cancel>完成</button></div>`,{subtitle:`插件接口版本 ${P.API_VERSION} · 开发包里还有接口类型文件和示例插件`,size:'wide'});
  $('#guide-copy').onclick=()=>{const ok=copyText(md);toast(ok?'已复制。把它和你的需求一起发给 AI，它就知道新模块要遵守哪些约定':'复制没有成功，请打开开发包文件夹复制文件',!ok);};
  $('#guide-folder')?.addEventListener('click',()=>run(()=>pcall('plugins:open-sdk')));
 }
 const handlers={
+ 'nav-open':()=>app.classList.add('nav-open'),'nav-close':()=>app.classList.remove('nav-open'),
  'view':b=>{S.view=b.dataset.value;S.query='';renderLibrary();},
  'layout':b=>{S.list=b.dataset.value==='list';renderLibrary();},
  'open':b=>openDoc(b.dataset.id), 'tab':b=>openDoc(b.dataset.id),
@@ -1642,7 +1850,7 @@ window.addEventListener('keydown',e=>{
  if(modal.open)return;const input=e.target.matches('input:not([type=range]):not([type=checkbox]):not([type=radio]):not([type=color]),textarea,select,[contenteditable=true]');const ctrl=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();
  if(ctrl&&key==='s'){e.preventDefault();finishText();run(async()=>{await flush();toast('已保存在本机');});return;}
  if(ctrl&&key==='k'&&!S.active){e.preventDefault();$('#library-search')?.focus();return;}
- if(ctrl&&(e.key==='\\'||e.code==='Backslash')&&S.active&&!EMBED){e.preventDefault();splitChooser();return;}
+ if(ctrl&&(e.key==='\\'||e.code==='Backslash')&&S.active&&!EMBED&&!NATIVE){e.preventDefault();splitChooser();return;}
  if(input)return;
  if(S.active){
   if(doc().kind==='discussion'){if(ctrl&&key==='z'){e.preventDefault();run(()=>undo(e.shiftKey));}else if(ctrl&&key==='y'){e.preventDefault();run(()=>undo(true));}else if(ctrl&&key==='f'){e.preventDefault();$('#discussion-search')?.focus();}else if(ctrl&&e.shiftKey&&key==='e'){e.preventDefault();run(()=>exportBackup(doc()));}return;}
@@ -1701,6 +1909,7 @@ async function init(){
     for(const d of [guide,learning,ideas]){d.sample=d.updatedAt;await store.save(d);S.docs.push(d);}await store.setSetting('initialized',true);
   }
   renderLibrary();
+  if(NATIVE)await startNative();
   if(window.desktop){document.body.classList.add('desktop');$('#windowbar').hidden=false;document.querySelectorAll('[data-window]').forEach(b=>b.onclick=()=>window.desktop.windowAction(b.dataset.window));startLibrarySync();window.desktop.onBeforeClose(async()=>{try{finishText();await flush();if(S.split)await closeSplit({reload:false});closing=true;window.desktop.closeReady(true);}catch(e){failure(e);window.desktop.closeReady(false);}});}
  }catch(e){window.desktop?.reportStartupError(e?.message||String(e));view.innerHTML=`<div class="boot boot-error"><img class="brand-logo boot-logo" src="icon.svg" alt="" aria-hidden="true"><h3>暂时无法打开本机笔记</h3><p>${E(e.message)}</p><p>请关闭后重新打开墨页。如仍无法启动，请保留错误信息和笔记数据。</p></div>`;failure(e);}
 }

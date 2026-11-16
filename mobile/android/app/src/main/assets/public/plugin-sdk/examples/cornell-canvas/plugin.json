@@ -1,0 +1,11 @@
+{
+  "id": "cornell-canvas",
+  "name": "康奈尔笔记画布",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "main": "index.mjs",
+  "icon": "cornell.svg",
+  "author": "墨页示例",
+  "description": "示例插件：A4 页面分成线索栏、笔记区和总结区。演示画布类型、页面数据、导入检查和底层绘制。",
+  "documents": [{ "kind": "notebook", "canvasType": "cornell" }]
+}

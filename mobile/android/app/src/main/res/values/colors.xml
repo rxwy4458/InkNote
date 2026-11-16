@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Behind the start-up icon and behind the page while it loads; matches 墨页's light surface colour. -->
+    <color name="splash_background">#FDF7FF</color>
+</resources>

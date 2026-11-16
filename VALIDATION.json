@@ -286,5 +286,50 @@
   "changes_0_7_0": [
     "one-click import/export folder replaced by the library folder",
     "sidebar categories, home tiles, new-note menu and import types now come from plugins"
-  ]
+  ],
+  "android_0_7_0": {
+    "project": "mobile/: Capacitor 8.6.2 (Android), app id com.inknote.app, versionCode 700, minSdk 24, targetSdk 36, no INTERNET permission, minimum Android System WebView 111",
+    "apk_built": false,
+    "apk_not_built_reason": "this build environment cannot reach Google's Maven / Android SDK / Gradle servers; .github/workflows/android.yml builds, signs and emulator-checks the APK on GitHub",
+    "device_execution_verified": false,
+    "web_build": "mobile/scripts/build-web.mjs: app/ → www/ with Android viewport, PDF.js 5.6.205 legacy build, built-in plugins in builtin-plugins/ (Capacitor clears a top-level plugins/ folder on every sync), Capacitor core script; --check verifies www/ against app/",
+    "emulation_tests": {
+      "tool": "Playwright Chromium, Pixel 7 / Galaxy Tab S4 emulation, serving mobile/www; the page gets the real native-bridge.js and Capacitor core, with the Java side of the Filesystem, Share, App and SystemBars plugins simulated (in-memory phone storage, /_capacitor_file_/ URLs served from it); touches through DevTools Input.dispatchTouchEvent (several fingers), pen through pointerType pen",
+      "checks_passed": 78,
+      "checks_failed": 0,
+      "covers": [
+        "edge-to-edge insets and status bar icon style (system / light / dark theme)",
+        "fit to width on phone and tablet",
+        "one-finger writing; a second finger drops the half-drawn stroke",
+        "pinch zoom keeps the spot under the fingers; two-finger scroll; pinch out",
+        "two-finger tap undo",
+        "「仅用笔书写」: finger scroll with inertia, tap stops the glide",
+        "pen writes with pressure; palm (finger next to the pen) ignored",
+        "first pen use turns on 「仅用笔书写」 once",
+        "text tool: tap places a focused text box, drag scrolls",
+        "hand tool",
+        "single-page pull past the end to turn the page",
+        "back button: dialog, drawer, note, library → minimize",
+        "phone drawer navigation",
+        "PDF / .inknote / all-notes .zip saved to Documents/墨页 with numbered names, share sheet, fallback to the share sheet when Documents is not writable",
+        "import of the exported backup",
+        "plugin install from an .inkplugin file into app storage, loaded through the WebView file URL, kept after restart, uninstall removes files",
+        "matrix canvas: double tap toggles a layer lock once, long press does not open the menu",
+        "infinite canvas pinch and writing",
+        "pause event saves pending edits"
+      ]
+    },
+    "desktop_regression_after_android_changes": {
+      "electron_e2e": 17,
+      "features": 66,
+      "func": 49,
+      "library_folder": 53,
+      "matrix": 50,
+      "plugins_e2e": 16,
+      "unit_tests": 51,
+      "all_passed": true
+    },
+    "icons": "menu, share, pinch, touch added to the Material Symbols subset; outlines of the 99 existing icons checked identical at several FILL/wght settings",
+    "signing": "RSA 4096 release key (alias inknote, valid 100 years) delivered separately; Gradle reads it from mobile/android/keystore.properties or INKNOTE_* environment variables"
+  }
 }

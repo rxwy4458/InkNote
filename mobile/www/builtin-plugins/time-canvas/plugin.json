@@ -1,0 +1,11 @@
+{
+  "id": "time-canvas",
+  "name": "时间画布",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "main": "index.mjs",
+  "icon": "time",
+  "author": "墨页",
+  "description": "创建即自动写入日期和时间的画布，新增的页面也会标记时间。可以选无限画布或 A4 分页。",
+  "documents": [{ "kind": "notebook", "canvasType": "time" }]
+}

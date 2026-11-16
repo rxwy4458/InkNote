@@ -1,0 +1,72 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace = "com.inknote.app"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.inknote.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 700
+        versionName "0.7.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    // Release signing: the key must stay the same for every version, otherwise Android refuses to install an
+    // update over the old app (and uninstalling first would delete the notes). The key is read from
+    // keystore.properties next to this folder, or from environment variables in the cloud build.
+    def keyProps = new Properties()
+    def keyFile = rootProject.file('keystore.properties')
+    if (keyFile.exists()) keyFile.withInputStream { keyProps.load(it) }
+    def keyValue = { String name, String env -> keyProps.getProperty(name) ?: System.getenv(env) }
+    def storePath = keyValue('storeFile', 'INKNOTE_KEYSTORE')
+    signingConfigs {
+        if (storePath) {
+            release {
+                storeFile rootProject.file(storePath)
+                storePassword keyValue('storePassword', 'INKNOTE_KEYSTORE_PASSWORD')
+                keyAlias keyValue('keyAlias', 'INKNOTE_KEY_ALIAS')
+                keyPassword keyValue('keyPassword', 'INKNOTE_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            // A test build can sit next to the real app without touching its notes.
+            applicationIdSuffix ".debug"
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (storePath) signingConfig signingConfigs.release
+        }
+    }
+    lint {
+        // Report problems but never fail a build on them.
+        abortOnError false
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'

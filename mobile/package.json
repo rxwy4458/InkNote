@@ -1,0 +1,23 @@
+{
+  "name": "inknote-mobile",
+  "version": "0.7.0",
+  "private": true,
+  "description": "墨页 InkNote for Android: the same app/ code inside a Capacitor shell.",
+  "scripts": {
+    "build:web": "node scripts/build-web.mjs",
+    "sync": "node scripts/build-web.mjs && npx cap sync android",
+    "icons": "node scripts/make-icons.mjs",
+    "check": "node scripts/build-web.mjs --check"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.2",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.6.2",
+    "@capacitor/filesystem": "8.1.5",
+    "@capacitor/share": "8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.2",
+    "pdfjs-dist": "5.6.205"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "id": "discussion",
+  "name": "发帖子",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "main": "index.mjs",
+  "icon": "post",
+  "author": "墨页",
+  "description": "一页一个帖子：主楼、多个楼层和逐层回复（楼中楼），支持 Markdown、公式和图片，自动记录日期时间。",
+  "documents": [{ "kind": "discussion" }]
+}

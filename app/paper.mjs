@@ -30,7 +30,7 @@ function guide(c,n,w,h){
   c.fillStyle=PRIMARY;c.font=`600 40px ${FONT}`;c.fillText('把想法，',45,218);c.fillText('写下来。',45,272);
   text('读一份文档，写几行随想，记下某个时刻。',47,312,13,INK3);
   text('欢迎使用墨页',47,380,16,INK,'600 ');
-  ['上方工具栏选择画笔、荧光笔或文字；','时间画布会自动写下创建的日期和时间；','所有内容只保存在这台电脑上。'].forEach((s,i)=>text(s,47,414+i*28,12.5,INK2));
+  ['上方工具栏选择画笔、荧光笔或文字；','时间画布会自动写下创建的日期和时间；',(globalThis.document?.documentElement?.classList?.contains('native')?'所有内容只保存在这台设备上。':'所有内容只保存在这台电脑上。')].forEach((s,i)=>text(s,47,414+i*28,12.5,INK2));
   c.fillStyle='#f7f2fa';c.fillRect(45,520,w-90,180);c.setLineDash([4,5]);c.strokeStyle=paperAccent.container;c.lineWidth=1;c.strokeRect(58,533,w-116,154);c.setLineDash([]);
   text('在这里写下第一笔',92,604,14,INK3);text('鼠标、触控笔或手指都可以',92,630,11,'#938f99');
  }else if(n===1){

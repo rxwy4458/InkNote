@@ -1,0 +1,108 @@
+/* 墨页 on Android. Loaded by native.mjs only inside the Android app (html.native), so the Windows and browser
+   versions never see these rules. Phone layout = the view is narrower than 600px (Material "compact" width). */
+
+/* ---------- Edge to edge: clear the status bar, the navigation bar and camera cut-outs ---------- */
+html.native{
+ --sat:var(--safe-area-inset-top,0px);--sab:var(--safe-area-inset-bottom,0px);
+ --sal:var(--safe-area-inset-left,0px);--sar:var(--safe-area-inset-right,0px);
+ -webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-size-adjust:100%;
+ overscroll-behavior:none
+}
+html.native body{box-sizing:border-box;padding:var(--sat) var(--sar) var(--sab) var(--sal);overscroll-behavior:none}
+html.native dialog{max-width:calc(100vw - 24px - var(--sal) - var(--sar));max-height:calc(100vh - 32px - var(--sat) - var(--sab))}
+html.native #toasts{left:12px;right:12px;bottom:calc(16px + var(--sab));align-items:center}
+html.native .toast{max-width:min(480px,100%)}
+/* Long presses should not pop up the browser's text-selection handles over buttons and pages. */
+html.native :is(button,.icon-btn,.nav-item,.doc-card,.qs-tile,.toolbar,.page-controls,.titlebar,.canvas-workspace,.page-thumb,.mx-root){-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+html.native :is(input,textarea,[contenteditable=true],.rich-box.editing){-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+/* The editor handles every touch on the page itself (draw, scroll with inertia, pinch to zoom). */
+html.native .canvas-workspace,html.native .canvas-workspace .ink-canvas{touch-action:none}
+html.native .canvas-workspace{scrollbar-width:none}
+html.native .canvas-workspace::-webkit-scrollbar{display:none}
+/* Split view and the Calibre converter are desktop features. */
+html.native :is([data-action=split],[data-page-menu=split],.split-toggle){display:none!important}
+
+/* Bigger touch targets for small controls */
+html.native .icon-btn.tiny{width:36px;height:36px}
+
+/* ---------- Pinch zoom: the page is scaled as a picture while the fingers move ---------- */
+html.native .canvas-workspace.pinching{will-change:transform}
+html.native .canvas-workspace.pinching *{transition:none!important}
+html.native .page-wrapper.flip-pull{transition:none}
+
+/* ---------- Navigation drawer on phones (opens from the ☰ button; the rail is too wide for a phone) ---------- */
+.nav-scrim,.phone-only{display:none}
+@container view (max-width:599px){
+ html.native .phone-only{display:inline-grid}
+ html.native .nav-drawer{position:fixed;z-index:60;top:0;bottom:0;left:0;width:calc(min(304px,86vw) + var(--sal));box-sizing:border-box;padding:var(--sat) 0 var(--sab) var(--sal);background:var(--md-surface-container-low);border-radius:0 24px 24px 0;box-shadow:var(--e3);transform:translateX(-104%);visibility:hidden;transition:transform .28s var(--ease),visibility 0s linear .28s;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}
+ html.native .nav-drawer .side-nav{flex:none;overflow:visible;min-height:auto}
+ html.native .nav-open .nav-drawer{transform:none;visibility:visible;transition:transform .34s var(--spring)}
+ html.native .nav-scrim{display:block;position:fixed;inset:0;z-index:59;background:color-mix(in srgb,var(--md-scrim) 32%,transparent);opacity:0;visibility:hidden;transition:opacity .25s,visibility 0s linear .25s}
+ html.native .nav-open .nav-scrim{opacity:1;visibility:visible;transition:opacity .25s}
+ /* undo the icon-only rail styles of the 700px layout inside the drawer */
+ html.native .nav-drawer .sidebar-brand{padding:0 24px;justify-content:flex-start}
+ html.native .nav-drawer :is(.brand-name,.nav-label,.nav-count,.storage-label span,#storage-text,.exchange-text){display:block}
+ html.native .nav-drawer .side-label{display:flex;height:44px;padding:12px 8px 0 16px}
+ html.native .nav-drawer .nav-item{flex-direction:row;justify-content:flex-start;gap:14px;padding:0 20px 0 16px;height:52px}
+ html.native .nav-drawer .nav-count{margin-left:auto}
+ html.native .nav-drawer .sidebar-new{display:none}
+ html.native .nav-drawer .sidebar-foot{margin:8px 12px 16px;padding:16px;align-items:stretch}
+ html.native .nav-drawer .exchange-status{justify-content:flex-start}
+ html.native .nav-drawer .drawer-extra{display:flex;flex-direction:column;gap:2px;padding:4px 12px 0}
+ html.native .nav-drawer .drawer-extra .nav-item{height:48px}
+
+ html.native .library-top{height:64px;padding:0 8px 0 4px;gap:2px}
+ html.native .library-top .search-bar{min-width:0;height:48px;padding:0 10px 0 14px;gap:10px}
+ html.native .library-top .search-bar input{font-size:15px}
+ html.native .library-top [data-action=help]{display:none}
+ html.native .library-scroll{margin:0 6px 6px;border-radius:24px}
+ html.native .library-content{padding:20px 16px 112px}
+ html.native .page-heading .display{font-size:40px}
+ html.native .page-heading .headline{font-size:28px}
+ html.native .quick-tiles{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:20px}
+ html.native .qs-tile{height:64px;padding:0 10px 0 8px;gap:10px;border-radius:32px}
+ html.native .qs-icon{width:44px;height:44px}
+ html.native .qs-text strong{font-size:15px}
+ html.native .qs-text small{display:none}
+ html.native .section-row{flex-wrap:wrap;row-gap:8px;margin:28px 0 12px}
+ html.native .section-title{white-space:nowrap}
+ html.native .documents-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+ html.native .documents-grid.list-mode{grid-template-columns:1fr}
+ html.native .phone-fab{display:inline-flex;position:fixed;right:calc(16px + var(--sar));bottom:calc(16px + var(--sab));z-index:20;width:56px;height:56px;padding:0;border-radius:16px;--icon:24px}
+ html.native .phone-fab .icon{display:inline-block}
+ html.native .section-row .spacer{flex-basis:100%;height:0}
+ html.native .section-row .sort-select{margin-left:auto}
+ html.native .doc-info{gap:6px;padding:10px 0 2px 6px}
+ html.native .doc-info .type-icon{display:none}
+ html.native .doc-info .doc-menu{width:34px;height:34px;--icon:20px}
+
+ /* editor */
+ html.native .editor-body{padding:0 6px 6px}
+ html.native .stage{border-radius:22px}
+ html.native .titlebar{padding:0 4px;gap:2px}
+ html.native .canvas-workspace{padding:16px 10px 96px}
+ html.native .toolbar:not(.vertical){left:8px;right:8px;transform:none;width:auto;max-width:none;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;overscroll-behavior-x:contain;justify-content:flex-start}
+ html.native .toolbar:not(.vertical)::-webkit-scrollbar{display:none}
+ html.native .toolbar:not(.vertical) :is(.tool-group,.color-dots,.width-setting,.tb-handle,.tb-sep){flex-shrink:0}
+ html.native .toolbar:not(.vertical) .color-dot:nth-child(n+3){display:grid}
+ html.native .toolbar:not(.vertical) .width-setting input{width:72px}
+ html.native .page-controls{right:8px;top:8px}
+ html.native .page-controls :is([data-action=fit]:not(.zoom-value),.scroll-mode-btn,.pc-sep){display:none}
+ html.native .comments-panel{width:auto;left:6px;right:6px}
+ html.native .pdf-find{left:8px;right:8px;max-width:none;top:calc(var(--bar-h) + 8px)}
+}
+/* tablets in portrait keep the rail; the new-note button stays in it, with its pen icon */
+.phone-fab{display:none}
+html.native .sidebar-new .fab .icon{display:inline-block}
+
+/* Only in the phone drawer */
+.drawer-extra{display:none}
+html.native #settings-converter{display:none}
+
+/* Help on Android: gestures instead of keyboard shortcuts */
+.gesture-list{display:flex;flex-direction:column;gap:4px;margin:4px 0 16px}
+.gesture-row{display:flex;align-items:center;gap:14px;padding:10px 12px;border-radius:16px;background:var(--md-surface-container)}
+.gesture-row>span:last-child{display:flex;flex-direction:column;gap:2px;min-width:0}
+.gesture-row strong{font-size:15px;font-weight:600;color:var(--md-on-surface)}
+.gesture-row small{font-size:13px;line-height:1.5;color:var(--md-on-surface-variant)}
+.gesture-icon{display:grid;place-items:center;flex-shrink:0;width:40px;height:40px;border-radius:20px;background:var(--md-secondary-container);color:var(--md-on-secondary-container);--icon:22px}

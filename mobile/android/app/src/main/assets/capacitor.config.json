@@ -1,0 +1,22 @@
+{
+	"appId": "com.inknote.app",
+	"appName": "墨页",
+	"webDir": "www",
+	"server": {
+		"androidScheme": "https",
+		"errorPath": "webview-update.html"
+	},
+	"android": {
+		"minWebViewVersion": 111,
+		"allowMixedContent": false,
+		"captureInput": false,
+		"backgroundColor": "#00000000"
+	},
+	"plugins": {
+		"SystemBars": {
+			"insetsHandling": "css",
+			"style": "DEFAULT",
+			"initialViewportFitValueHint": "cover"
+		}
+	}
+}

@@ -1,0 +1,152 @@
+# Builds the 墨页 Android app (APK) in the cloud, checks it on an Android emulator and publishes it as a GitHub release.
+# Needs four repository secrets for the release signing key (see mobile/安卓版构建说明.md):
+#   INKNOTE_KEYSTORE_B64, INKNOTE_KEYSTORE_PASSWORD, INKNOTE_KEY_ALIAS, INKNOTE_KEY_PASSWORD
+name: Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['app/**', 'mobile/**', '.github/workflows/android.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Web content (app/ → mobile/www → Android project)
+        working-directory: mobile
+        run: |
+          npm ci
+          node scripts/build-web.mjs
+          node scripts/build-web.mjs --check
+          npx cap sync android
+
+      - name: Release signing key
+        id: signing
+        env:
+          KEYSTORE_B64: ${{ secrets.INKNOTE_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "Building an unsigned release APK for signing with the existing key locally."
+            exit 0
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/inknote-release.jks"
+          echo "INKNOTE_KEYSTORE=$RUNNER_TEMP/inknote-release.jks" >> "$GITHUB_ENV"
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build (release + debug)
+        working-directory: mobile/android
+        env:
+          INKNOTE_KEYSTORE_PASSWORD: ${{ secrets.INKNOTE_KEYSTORE_PASSWORD }}
+          INKNOTE_KEY_ALIAS: ${{ secrets.INKNOTE_KEY_ALIAS }}
+          INKNOTE_KEY_PASSWORD: ${{ secrets.INKNOTE_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace assembleRelease assembleDebug
+
+      - name: Check the signature and name the APK
+        env:
+          SIGNING_CONFIGURED: ${{ steps.signing.outputs.configured }}
+        run: |
+          VERSION=$(node -p "require('./mobile/package.json').version")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          mkdir -p dist
+          if [ "$SIGNING_CONFIGURED" = true ]; then
+            "$APKSIGNER" verify --verbose --print-certs mobile/android/app/build/outputs/apk/release/app-release.apk | tee signature.txt
+            grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" signature.txt
+            cp mobile/android/app/build/outputs/apk/release/app-release.apk "dist/InkNote-Android-$VERSION.apk"
+          else
+            UNSIGNED=mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk
+            cp "$UNSIGNED" "dist/InkNote-Android-$VERSION-unsigned.apk"
+            "$APKSIGNER" sign --ks "$HOME/.android/debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out "$RUNNER_TEMP/emulator-release.apk" "$UNSIGNED"
+            echo "INKNOTE_EMULATOR_RELEASE_APK=$RUNNER_TEMP/emulator-release.apk" >> "$GITHUB_ENV"
+            TOOLS=$(dirname "$APKSIGNER")
+            mkdir -p signing-tools/lib
+            cp "$TOOLS/lib/apksigner.jar" signing-tools/lib/
+            cp "$TOOLS/zipalign" "$TOOLS/aapt2" signing-tools/
+            if [ -d "$TOOLS/lib64" ]; then cp -r "$TOOLS/lib64" signing-tools/; fi
+            if [ -f "$TOOLS/NOTICE.txt" ]; then cp "$TOOLS/NOTICE.txt" signing-tools/; fi
+          fi
+          sha256sum dist/*.apk | tee dist/SHA256.txt
+
+      - name: Enable KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Playwright (drives the app's WebView on the emulator)
+        working-directory: mobile
+        run: npm i --no-save playwright@1.63.0
+
+      - name: Check on an Android emulator
+        id: emulator
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash mobile/scripts/emulator-run.sh
+
+      - name: Keep the files of this run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: InkNote-Android
+          path: |
+            dist/
+            emulator-results/
+            signature.txt
+            signing-tools/
+          if-no-files-found: ignore
+
+      - name: Publish the release
+        if: steps.signing.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EMULATOR: ${{ steps.emulator.outcome }}
+        run: |
+          TAG="android-v$VERSION"
+          {
+            echo "墨页 Android $VERSION（Android 7.0 及以上）。下载下面的 InkNote-Android-$VERSION.apk，在手机上打开安装。"
+            echo
+            echo "模拟器检查：$EMULATOR"
+            echo '```'
+            cat emulator-results/webview.txt emulator-results/results.txt 2>/dev/null || echo "（没有结果）"
+            echo '```'
+            echo "SHA-256：$(cut -d' ' -f1 dist/SHA256.txt)"
+          } > notes.md
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "墨页 Android $VERSION" --notes-file notes.md
+          gh release edit "$TAG" --notes-file notes.md
+          gh release upload "$TAG" dist/*.apk dist/SHA256.txt --clobber
+          for f in emulator-results/*.png emulator-results/results.txt; do [ -f "$f" ] && gh release upload "$TAG" "$f" --clobber; done
+          echo "Release: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG"

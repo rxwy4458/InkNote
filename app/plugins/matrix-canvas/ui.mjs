@@ -6,6 +6,7 @@ export function createMatrixUI(host) {
   const ed = host.editor, ui = host.ui, ink = host.ink;
   const E = s => ui.escape(s), icon = (n, c) => ui.icon(n, c);
   let root = null, page = null, thumbFrame = 0, peekTimer = 0, suppressClick = false;
+  let lastTap = null, lastDouble = 0;  // double tap on touch screens (Android), see doubleTap()
   const cache = new Map();  // template id -> {tpl, arrays, w, h, canvas}: the locked layers of a template, drawn once
 
   // ---------- locked layers under the live one (two drawImage calls per frame while scrubbing) ----------
@@ -172,7 +173,7 @@ export function createMatrixUI(host) {
       const up = ev => {
         if (ev.pointerId !== e.pointerId) return;
         clearTimeout(timer); window.removeEventListener('pointermove', move, true); window.removeEventListener('pointerup', up, true); window.removeEventListener('pointercancel', up, true);
-        if (!scrub) return;
+        if (!scrub) { if (e.pointerType !== 'mouse' && ev.type === 'pointerup') doubleTap(cell); return; }
         cancelAnimationFrame(frame); if (want && want !== current) { axis === 'x' ? pickTemplate(want) : pickLayer(want); }
         suppressClick = true; setTimeout(() => { suppressClick = false; }, 0);
         track.classList.remove('scrubbing'); document.body.classList.remove('mx-scrubbing'); settle();
@@ -234,10 +235,20 @@ export function createMatrixUI(host) {
   }
   function onDblClick(e) {
     const cell = e.target.closest('.mx-cell'); if (!cell || !page) return; e.preventDefault();
-    if (cell.classList.contains('mx-tpl')) renameTemplate(cell.dataset.id); else toggleLock(cell.dataset.id);
+    if (e.sourceCapabilities?.firesTouchEvents || performance.now() - lastDouble < 700) return;  // a finger: doubleTap() already did it
+    dblAction(cell);
+  }
+  function dblAction(cell) { if (cell.classList.contains('mx-tpl')) renameTemplate(cell.dataset.id); else toggleLock(cell.dataset.id); }
+  // Fingers and pens: two quick taps on the same cell do what a double click does.
+  function doubleTap(cell) {
+    const now = performance.now(), id = cell.dataset.id;
+    if (lastTap && lastTap.id === id && now - lastTap.t < 400) { lastTap = null; lastDouble = now; dblAction(cell); return; }
+    lastTap = { id, t: now };
   }
   function onContext(e) {
     const cell = e.target.closest('.mx-cell'); if (!cell || !page) return; e.preventDefault();
+    // A long press on a touch screen is the start of a scrub, not a right click: menus are under the ⋮ buttons.
+    if ((e.pointerType && e.pointerType !== 'mouse') || e.sourceCapabilities?.firesTouchEvents) return;
     if (cell.classList.contains('mx-tpl')) templateMenu(cell.dataset.id); else layerMenu(cell.dataset.id);
   }
   function onTrackKey(e) {

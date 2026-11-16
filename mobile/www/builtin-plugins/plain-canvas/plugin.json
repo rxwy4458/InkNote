@@ -1,0 +1,11 @@
+{
+  "id": "plain-canvas",
+  "name": "普通画布",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "main": "index.mjs",
+  "icon": "draw",
+  "author": "墨页",
+  "description": "不带自动时间的画布，需要时手动插入日期。可以选无限画布或 A4 分页、横线方格点阵和线距。",
+  "documents": [{ "kind": "notebook", "canvasType": "plain" }]
+}

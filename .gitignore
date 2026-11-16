@@ -3,3 +3,5 @@ release/
 .DS_Store
 *.log
 .openai/
+mobile/www/
+runtime/*.zip
