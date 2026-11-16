@@ -40,7 +40,7 @@ cd mobile/native-android
 依赖仓库已有的 Gradle 8.14.3 Wrapper，使用 JDK 17、Android SDK 36。
 GitHub Actions「Native Android ink preview」构建 APK、检查签名，并在 Android 15 平板模拟器上运行仪器测试。
 
-仪器测试覆盖压感/时间戳持久化、真实点与预测点分离、取消输入、手掌与笔的 pointer index 变化、撤销重做、快速整笔擦除、可编辑备份往返、PDF 导出再导入，以及原生笔记库到编辑器的实际交互。
+仪器测试覆盖压感/时间戳持久化、真实点与预测点分离、取消输入、手掌与笔的 pointer index 变化、撤销重做、快速整笔擦除、千笔历史内容追加书写、可编辑备份往返、PDF 导出再导入，以及原生笔记库到编辑器的实际交互。
 模拟器测试可以验证功能，不能代表一加平板上的端到端手写延迟。
 
 ## 真机比较

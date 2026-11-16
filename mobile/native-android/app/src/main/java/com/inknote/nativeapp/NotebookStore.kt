@@ -100,6 +100,7 @@ class NotebookStore(val root: File) {
                 PdfRenderer(fd).use { pdf ->
                     require(pdf.pageCount in 1..1000) { "PDF 超过测试版的 1000 页限制" }
                     (0 until pdf.pageCount).map { i -> pdf.openPage(i).use {
+                        require(it.width in 1..10000 && it.height in 1..10000) { "PDF 页面尺寸超过测试版限制" }
                         NotePage(width = it.width.toFloat(), height = it.height.toFloat(), paper = "blank", pdfPage = i)
                     } }
                 }

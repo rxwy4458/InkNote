@@ -102,7 +102,7 @@ class InkSurface(context: Context) : FrameLayout(context) {
                     added.forEach { record -> history.record(committed); committed = committed + record }
                     content.invalidate()
                     onChange(committed)
-                    onReport("已保存 ${committed.size} 笔 · 最近一笔 ${added.last().stroke.inputs.size} 个真实采样点")
+                    onReport("当前 ${committed.size} 笔 · 最近一笔 ${added.last().stroke.inputs.size} 个真实采样点")
                 }
                 // Same UI turn as invalidation: Ink coordinates the front-buffer handoff.
                 ink.removeFinishedStrokes(strokes.keys)

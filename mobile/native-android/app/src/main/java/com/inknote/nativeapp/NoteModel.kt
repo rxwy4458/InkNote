@@ -8,11 +8,15 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.AndroidViewModel
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.ConcurrentHashMap
 
 class NoteModel(application: Application) : AndroidViewModel(application) {
     val store = NotebookStore(File(application.filesDir, "native-notebooks"))
-    private val io = Executors.newSingleThreadExecutor()
-    private val pdf = Executors.newSingleThreadExecutor()
+    private fun worker(name: String) = Executors.newSingleThreadExecutor { runnable ->
+        Thread({ android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); runnable.run() }, name)
+    }
+    private val io = worker("InkNote-save")
+    private val pdf = worker("InkNote-pdf")
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
     val notes = mutableStateListOf<Notebook>()
     var loading by mutableStateOf(true)
@@ -26,6 +30,7 @@ class NoteModel(application: Application) : AndroidViewModel(application) {
         private set
     private var pdfEpoch = 0
     private var revision = 0L
+    private val latestSaves = ConcurrentHashMap<String, Long>()
     var pendingExport: Notebook? = null
     val current get() = notes.find { it.id == selectedId }
 
@@ -53,6 +58,12 @@ class NoteModel(application: Application) : AndroidViewModel(application) {
     }
     fun setStrokes(pageId: String, strokes: List<InkRecord>) {
         val note = current ?: return
+        val strokeCount = note.pages.sumOf { if (it.id == pageId) strokes.size else it.strokes.size }
+        val sampleCount = note.pages.sumOf { p -> (if (p.id == pageId) strokes else p.strokes).sumOf { it.stroke.inputs.size.toLong() } }
+        if (strokeCount > 20000 || sampleCount > 2_000_000) {
+            message = "当前笔记达到测试版容量限制，请新建一本笔记继续书写"
+            return
+        }
         update(note.copy(updated = System.currentTimeMillis(), pages = note.pages.map { if (it.id == pageId) it.copy(strokes = strokes) else it }))
     }
     fun rename(title: String) { current?.let { update(it.copy(title = title.take(200), updated = System.currentTimeMillis())) } }
@@ -62,7 +73,11 @@ class NoteModel(application: Application) : AndroidViewModel(application) {
     }
     private fun persist(note: Notebook) {
         val savedRevision = ++revision; saveState = "正在保存…"
-        task({ store.save(note) }) { if (savedRevision == revision) saveState = "已保存到本机" }
+        latestSaves[note.id] = savedRevision
+        // Superseded snapshots are skipped instead of accumulating expensive full-note writes.
+        task({ if (latestSaves[note.id] == savedRevision) store.save(note) }) {
+            if (savedRevision == revision) saveState = "已保存到本机"
+        }
     }
     private fun clearPdf() { pdfEpoch++; pdfBitmap = null; pdfLoading = false }
     fun requestPdf() {

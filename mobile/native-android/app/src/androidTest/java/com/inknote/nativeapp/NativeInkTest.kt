@@ -94,7 +94,7 @@ class NativeInkTest {
         send(view, t, t + 24, MotionEvent.ACTION_POINTER_UP or (1 shl 8), intArrayOf(7, 23), intArrayOf(pen, finger), floatArrayOf(x + 16, x + 100), floatArrayOf(y + 8, y), floatArrayOf(.6f, .7f), MotionEvent.FLAG_CANCELED)
         send(view, t, t + 32, MotionEvent.ACTION_UP, intArrayOf(7), intArrayOf(pen), floatArrayOf(x + 32), floatArrayOf(y + 16), floatArrayOf(.8f))
         assertTrue(latch.await(20, TimeUnit.SECONDS)); assertEquals(1, result.size)
-        assertEquals(InputToolType.STYLUS, result.single().stroke.inputs.toolType)
+        assertEquals(InputToolType.STYLUS, result.single().stroke.inputs.getToolType())
     }
 
     @Test fun undoRedoAndFastSweptEraserPreserveTheCorrectStroke() {
